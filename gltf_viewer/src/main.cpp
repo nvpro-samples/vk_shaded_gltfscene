@@ -46,7 +46,7 @@
 #include "gltf_viewer.hpp"
 
 std::shared_ptr<nvvkhl::ElementCamera>   g_elem_camera;  // Is accessed elsewhere in the App
-std::shared_ptr<nvvkhl::ElementProfiler> g_profiler; // GPU profiler
+std::shared_ptr<nvvkhl::ElementProfiler> g_profiler;     // GPU profiler
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -97,6 +97,8 @@ auto main(int argc, char** argv) -> int
   app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));               // Add logger window
   app->addElement(g_profiler);                                                 // GPU Profiler
   app->addElement(gltf_viewer);                                                // Our sample
+
+  g_profiler->setLabelUsage(false);
 
   // Search paths
   const std::vector<std::string> default_search_paths = {NVPSystem::exePath() + PROJECT_DOWNLOAD_RELDIRECTORY};
