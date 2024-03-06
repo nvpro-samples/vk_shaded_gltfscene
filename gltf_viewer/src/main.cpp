@@ -91,11 +91,6 @@ auto main(int argc, char** argv) -> int
   g_elem_camera    = std::make_shared<nvvkhl::ElementCamera>();
   g_profiler       = std::make_shared<nvvkhl::ElementProfiler>(false);
 
-  app->addElement(g_elem_camera);                                              // Controlling the camera movement
-  app->addElement(std::make_shared<nvvkhl::ElementDefaultMenu>());             // Menu / Quit
-  app->addElement(std::make_unique<nvvkhl::ElementLogger>(&g_logger, false));  // Add logger window
-  app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));               // Add logger window
-  app->addElement(g_profiler);                                                 // GPU Profiler
   app->addElement(gltf_viewer);                                                // Our sample
 
   g_profiler->setLabelUsage(false);
@@ -122,6 +117,16 @@ auto main(int argc, char** argv) -> int
 
   // Loading HDR and scene; default or command line
   gltf_viewer->onFileDrop(in_hdr.c_str());
+
+
+  app->addElement(std::make_shared<nvvkhl::ElementDefaultMenu>());             // Menu / Quit
+
+  app->addElement(g_elem_camera);                                              // Controlling the camera movement
+  app->addElement(std::make_unique<nvvkhl::ElementLogger>(&g_logger, false));  // Add logger window
+  app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));               // Add logger window
+  app->addElement(g_profiler);                                                 // GPU Profiler
+
+
   while(gltf_viewer->isBusy())
   {  // Making sure the HDR is loaded before loading the scene
     std::this_thread::sleep_for(std::chrono::milliseconds(10));

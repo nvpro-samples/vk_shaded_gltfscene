@@ -210,7 +210,7 @@ vec3 pathTrace(Ray r, inout uint seed)
     vec3  lightRadianceOverPdf = sampleLights(hit.pos, pbrMat.normal, r.direction, seed, dirToLight, lightPdf);
 
     // do not next event estimation (but delay the adding of contribution)
-    const bool nextEventValid = ((dot(dirToLight, hit.geonrm) > 0.0f) != isInside) && lightPdf != 0.0f;
+    const bool nextEventValid = ((dot(dirToLight, hit.geonrm) > 0.0f) != isInside) && (lightPdf > 0.0f || lightPdf < 0.0f);
 
     // Evaluate BSDF
     if(nextEventValid)
@@ -225,7 +225,7 @@ vec3 pathTrace(Ray r, inout uint seed)
 
       if(evalData.pdf > 0.0)
       {
-        const float mis_weight = (lightPdf == DIRAC) ? 1.0f : lightPdf / (lightPdf + evalData.pdf);
+        const float mis_weight = (lightPdf < DIRAC + 0.5f) ? 1.0f : lightPdf / (lightPdf + evalData.pdf);
 
         // sample weight
         const vec3 w = throughput * lightRadianceOverPdf * mis_weight;
