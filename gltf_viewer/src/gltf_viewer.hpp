@@ -87,7 +87,7 @@ class GltfViewer : public nvvkhl::IAppElement
     int          maxDepth      = 5;
     bool         showAxis      = true;
     bool         showWireframe = false;
-    EnvSystem    envSystem     = eSky;
+    EnvSystem    envSystem     = eHdr;
     RenderSystem renderSystem  = ePathtracer;
     float        envIntensity  = 1.F;
     float        envRotation   = 0.F;
@@ -98,7 +98,7 @@ class GltfViewer : public nvvkhl::IAppElement
   } m_settings;
 
 public:
-  GltfViewer()           = default;
+  GltfViewer();
   ~GltfViewer() override = default;
 
 
@@ -109,6 +109,7 @@ public:
   void onFileDrop(const char* filename) override;
   void onUIRender() override;
   void onRender(VkCommandBuffer cmd) override;
+  void createHdr(const std::string& filename);
 
   bool isBusy() const { return m_busy; }
 
@@ -141,7 +142,6 @@ private:
   void                  renderNodes(VkCommandBuffer cmd, const std::vector<uint32_t>& nodeIDs);
   void                  renderRasterScene(VkCommandBuffer cmd);
   void                  rasterScene(VkCommandBuffer cmd);
-  void                  createHdr(const std::string& filename);
   void                  destroyResources();
   std::vector<uint32_t> getShadedNodes(PipelineType type);
 

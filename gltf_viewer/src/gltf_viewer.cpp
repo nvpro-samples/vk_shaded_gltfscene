@@ -37,6 +37,7 @@
 #include "nvvk/sbtwrapper_vk.hpp"
 #include "nvvkhl/element_camera.hpp"
 #include "nvvkhl/element_profiler.hpp"
+#include "nvvkhl/element_benchmark_parameters.hpp"
 #include "nvvkhl/gbuffer.hpp"
 #include "nvvkhl/gltf_scene_rtx.hpp"
 #include "nvvkhl/hdr_env.hpp"
@@ -47,8 +48,9 @@
 #include "nvvkhl/tonemap_postprocess.hpp"
 #include "shaders/dh_bindings.h"
 
-extern std::shared_ptr<nvvkhl::ElementCamera> g_elem_camera;
-extern std::shared_ptr<nvvkhl::ElementProfiler> g_profiler; // GPU profiler
+extern std::shared_ptr<nvvkhl::ElementCamera>              g_elem_camera;
+extern std::shared_ptr<nvvkhl::ElementProfiler>            g_profiler;         // GPU profiler
+extern std::shared_ptr<nvvkhl::ElementBenchmarkParameters> g_benchmarkParams;  // Benchmark parameters
 
 #include "_autogen/pathtrace.rahit.h"
 #include "_autogen/pathtrace.rchit.h"
@@ -61,6 +63,18 @@ extern std::shared_ptr<nvvkhl::ElementProfiler> g_profiler; // GPU profiler
 
 #define RASTER_SS_SIZE 2.0F  // Change this for the default Super-Sampling resolution multiplier for raster
 
+GltfViewer::GltfViewer()
+{
+  auto& pl = g_benchmarkParams->parameterLists();
+
+  pl.add("maxFrames|Maximum rendering frames", &m_settings.maxFrames);
+  pl.add("maxSamples|Maximum samples per frame", &m_settings.maxSamples);
+  pl.add("maxDepth|Maximum ray depth", &m_settings.maxDepth);
+  pl.add("showAxis|Show axis", &m_settings.showAxis);
+  pl.add("sky", [&](uint32_t) { m_settings.envSystem = Settings::eSky; });
+  pl.add("raytrace", [&](uint32_t) { m_settings.renderSystem = Settings::ePathtracer; });
+  pl.add("raster", [&](uint32_t) { m_settings.renderSystem = Settings::eRaster; });
+}
 
 //--------------------------------------------------------------------------------------------------
 // This is called by the Application, when this "Element" is added.
@@ -68,6 +82,9 @@ extern std::shared_ptr<nvvkhl::ElementProfiler> g_profiler; // GPU profiler
 void GltfViewer::onAttach(nvvkhl::Application* app)
 {
   nvh::ScopedTimer st(std::string("\n") + __FUNCTION__);
+
+  // Returning the current rendering frame for benchmarking, which is different from the frame counter
+  g_benchmarkParams->setCurrentFrame([&]() { return m_frame; });
 
   m_app    = app;
   m_device = m_app->getDevice();
@@ -110,12 +127,6 @@ void GltfViewer::onAttach(nvvkhl::Application* app)
   // Create Vulkan resources
   createGbuffers(m_viewSize);
   createVulkanBuffers();
-
-  //// Axis in the bottom left corner
-  //nvvk::AxisVK::CreateAxisInfo ainfo;
-  //ainfo.colorFormat = {m_gBuffers->getColorFormat(eLdr)};
-  //ainfo.depthFormat = m_gBuffers->getDepthFormat();
-  //m_vkAxis->init(m_device, ainfo);
 
   m_tonemapper->createComputePipeline();
 }
@@ -390,10 +401,10 @@ void GltfViewer::onUIRender()
 //
 void GltfViewer::onRender(VkCommandBuffer cmd)
 {
-  if(!m_scene->valid() || !updateFrame() || m_busy)
-  {
+  if(!m_scene->valid() || m_busy)
     return;
-  }
+  if(!updateFrame())  // Done separately to avoid increasing the frame count
+    return;
 
   auto scope_dbg = m_dutil->DBG_SCOPE(cmd);
 
@@ -420,7 +431,7 @@ void GltfViewer::onRender(VkCommandBuffer cmd)
     m_frameInfo.useSky   = 0;
     m_frameInfo.nbLights = 0;
     m_frameInfo.envColor = glm::vec4(m_settings.envIntensity, m_settings.envIntensity, m_settings.envIntensity, 1.0F);
-    m_frameInfo.envRotation  = m_settings.envRotation;
+    m_frameInfo.envRotation  = glm::degrees(m_settings.envRotation);
     m_frameInfo.maxLuminance = m_settings.maxLuminance;
   }
   vkCmdUpdateBuffer(cmd, m_bFrameInfo.buffer, 0, sizeof(FrameInfo), &m_frameInfo);
@@ -986,7 +997,7 @@ void GltfViewer::screenPicking()
 void GltfViewer::raytraceScene(VkCommandBuffer cmd)
 {
   const nvvk::DebugUtil::ScopedCmdLabel scope_dbg = m_dutil->DBG_SCOPE(cmd);
-  auto sec = g_profiler->timeRecurring("Raytrace", cmd);
+  auto                                  sec       = g_profiler->timeRecurring("Raytrace", cmd);
 
   // Ray trace
   std::vector<VkDescriptorSet> desc_sets{m_rtxSet->getSet(), m_sceneSet->getSet(), m_sky->getDescriptorSet(),
@@ -1151,7 +1162,7 @@ void GltfViewer::rasterScene(VkCommandBuffer cmd)
     }
     else
     {
-      auto sec = g_profiler->timeRecurring("HDR Dome", cmd);
+      auto                 sec = g_profiler->timeRecurring("HDR Dome", cmd);
       std::array<float, 4> color{m_settings.envIntensity, m_settings.envIntensity, m_settings.envIntensity, 1.0F};
       m_hdrDome->draw(cmd, view, proj, img_size, color.data(), m_settings.envRotation);
     }
