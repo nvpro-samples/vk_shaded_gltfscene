@@ -24,6 +24,17 @@
 #include "shaders/device_host.h"
 
 
+#if defined(ALLOC_DMA)
+#include <nvvk/memallocator_dma_vk.hpp>
+typedef nvvk::ResourceAllocatorDma Allocator;
+#elif defined(ALLOC_VMA)
+#include <nvvk/memallocator_vma_vk.hpp>
+typedef nvvk::ResourceAllocatorVma Allocator;
+#else
+typedef nvvk::ResourceAllocatorDedicated Allocator;
+#endif
+
+
 namespace nvvk {
 class DebugUtil;
 class DescriptorSetContainer;
@@ -150,7 +161,7 @@ private:
   //
   nvvkhl::Application*              m_app{nullptr};
   std::unique_ptr<nvvk::DebugUtil>  m_dutil;
-  std::unique_ptr<nvvkhl::AllocVma> m_alloc;
+  Allocator                         m_alloc;
   VkCommandBuffer                   m_recordedSceneCmd{VK_NULL_HANDLE};
 
   glm::vec2                        m_viewSize{1, 1};

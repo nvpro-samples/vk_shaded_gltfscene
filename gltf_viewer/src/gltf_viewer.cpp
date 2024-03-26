@@ -98,19 +98,19 @@ void GltfViewer::onAttach(nvvkhl::Application* app)
   m_qGCT1 = ctx->createQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, "GCT1", 1.0F);
 
   m_dutil      = std::make_unique<nvvk::DebugUtil>(m_device);                            // Debug utility
-  m_alloc      = std::make_unique<nvvkhl::AllocVma>(ctx);                                // Allocator
+  m_alloc.init(m_app->getInstance(), m_device, m_app->getPhysicalDevice());              // Allocator
   m_scene      = std::make_unique<nvvkhl::Scene>();                                      // GLTF scene
-  m_sceneVk    = std::make_unique<nvvkhl::SceneVk>(ctx, m_alloc.get());                  // GLTF Scene buffers
-  m_sceneRtx   = std::make_unique<nvvkhl::SceneRtx>(ctx, m_alloc.get(), c_queue_index);  // GLTF Scene BLAS/TLAS
-  m_tonemapper = std::make_unique<nvvkhl::TonemapperPostProcess>(ctx, m_alloc.get());    // Tonemapper on rendered image
+  m_sceneVk    = std::make_unique<nvvkhl::SceneVk>(ctx, (nvvkhl::AllocVma *)&m_alloc);                  // GLTF Scene buffers
+  m_sceneRtx   = std::make_unique<nvvkhl::SceneRtx>(ctx, (nvvkhl::AllocVma *)&m_alloc, c_queue_index);  // GLTF Scene BLAS/TLAS
+  m_tonemapper = std::make_unique<nvvkhl::TonemapperPostProcess>(ctx, (nvvkhl::AllocVma *)&m_alloc);    // Tonemapper on rendered image
   m_sbt        = std::make_unique<nvvk::SBTWrapper>();                                   // Shader Binding Table
-  m_sky        = std::make_unique<nvvkhl::SkyDome>(ctx, m_alloc.get());                  // Sun&Sky
-  m_picker     = std::make_unique<nvvk::RayPickerKHR>(ctx, m_alloc.get(), c_queue_index);  // RTX Picking utility
-  m_hdrEnv     = std::make_unique<nvvkhl::HdrEnv>(ctx, m_alloc.get(), c_queue_index);      // HDR Generic
-  m_hdrDome    = std::make_unique<nvvkhl::HdrEnvDome>(ctx, m_alloc.get(), c_queue_index);  // HDR raster
+  m_sky        = std::make_unique<nvvkhl::SkyDome>(ctx, &m_alloc);                  // Sun&Sky
+  m_picker     = std::make_unique<nvvk::RayPickerKHR>(ctx, &m_alloc, c_queue_index);  // RTX Picking utility
+  m_hdrEnv     = std::make_unique<nvvkhl::HdrEnv>(ctx, &m_alloc, c_queue_index);      // HDR Generic
+  m_hdrDome    = std::make_unique<nvvkhl::HdrEnvDome>(ctx, &m_alloc, c_queue_index);  // HDR raster
   m_rtxSet     = std::make_unique<nvvk::DescriptorSetContainer>(m_device);                 // Descriptor set for RTX
   m_sceneSet   = std::make_unique<nvvk::DescriptorSetContainer>(m_device);    // Descriptor set for the scene elements
-  m_gBuffers   = std::make_unique<nvvkhl::GBuffer>(m_device, m_alloc.get());  // All the G-Buffers
+  m_gBuffers   = std::make_unique<nvvkhl::GBuffer>(m_device, &m_alloc);       // All the G-Buffers
 
   m_hdrEnv->loadEnvironment("");  // Initialize the environment with nothing (constant white: for now)
   m_hdrDome->create(m_hdrEnv->getDescriptorSet(), m_hdrEnv->getDescriptorSetLayout());  // Same as above
@@ -122,7 +122,7 @@ void GltfViewer::onAttach(nvvkhl::Application* app)
   vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
 
   // Create utilities to create the Shading Binding Table (SBT)
-  m_sbt->setup(m_app->getDevice(), t_queue_index, m_alloc.get(), rt_prop);
+  m_sbt->setup(m_app->getDevice(), t_queue_index, &m_alloc, rt_prop);
 
   // Create Vulkan resources
   createGbuffers(m_viewSize);
@@ -488,7 +488,7 @@ void GltfViewer::createScene(const std::string& filename)
       VkCommandBuffer cmd = cmd_pool.createCommandBuffer();
       m_sceneVk->create(cmd, *m_scene);
       cmd_pool.submitAndWait(cmd);
-      m_alloc->finalizeAndReleaseStaging();  // Make sure there are no pending staging buffers and clear them up
+      m_alloc.finalizeAndReleaseStaging();  // Make sure there are no pending staging buffers and clear them up
     }
 
     m_sceneRtx->create(*m_scene, *m_sceneVk);  // Create BLAS / TLAS
@@ -586,7 +586,7 @@ void GltfViewer::createVulkanBuffers()
   auto* cmd = m_app->createTempCmdBuffer();
 
   // Create the buffer of the current frame, changing at each frame
-  m_bFrameInfo = m_alloc->createBuffer(sizeof(FrameInfo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+  m_bFrameInfo = m_alloc.createBuffer(sizeof(FrameInfo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   m_dutil->DBG_NAME(m_bFrameInfo.buffer);
 
@@ -1197,8 +1197,8 @@ void GltfViewer::createHdr(const std::string& filename)
   nvh::ScopedTimer st(std::string("\n") + __FUNCTION__);
 
   const uint32_t c_family_queue = m_app->getContext()->m_queueC.familyIndex;
-  m_hdrEnv  = std::make_unique<nvvkhl::HdrEnv>(m_app->getContext().get(), m_alloc.get(), c_family_queue);
-  m_hdrDome = std::make_unique<nvvkhl::HdrEnvDome>(m_app->getContext().get(), m_alloc.get(), c_family_queue);
+  m_hdrEnv  = std::make_unique<nvvkhl::HdrEnv>(m_app->getContext().get(), &m_alloc, c_family_queue);
+  m_hdrDome = std::make_unique<nvvkhl::HdrEnvDome>(m_app->getContext().get(), &m_alloc, c_family_queue);
 
   m_hdrEnv->loadEnvironment(filename);
   m_hdrDome->create(m_hdrEnv->getDescriptorSet(), m_hdrEnv->getDescriptorSetLayout());
@@ -1213,7 +1213,7 @@ void GltfViewer::createHdr(const std::string& filename)
 //
 void GltfViewer::destroyResources()
 {
-  m_alloc->destroy(m_bFrameInfo);
+  m_alloc.destroy(m_bFrameInfo);
 
   freeRecordCommandBuffer();
 
