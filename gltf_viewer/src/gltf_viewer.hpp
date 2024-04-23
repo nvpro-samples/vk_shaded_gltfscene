@@ -22,6 +22,7 @@
 #include "nvvkhl/pipeline_container.hpp"
 #include "nvvkhl/shaders/dh_lighting.h"
 #include "shaders/device_host.h"
+#include "nvvkhl/alloc_vma.hpp"
 
 
 namespace nvvk {

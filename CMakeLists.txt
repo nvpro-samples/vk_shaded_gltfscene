@@ -4,7 +4,7 @@ get_filename_component(PROJECT_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 project(${PROJECT_NAME} LANGUAGES C CXX)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 #--------------------------------------------------------------------------------------------------
 # look for nvpro_core 1) as a sub-folder 2) at some other locations

@@ -61,7 +61,7 @@ layout(set = 3, binding = eHdr)                 uniform sampler2D               
 #include "nvvkhl/shaders/hdr_env_sampling.glsl"  // nedd envSamplingData[]
 
 
-layout(push_constant) uniform RtxPushConstant_
+layout(push_constant, scalar) uniform RtxPushConstant_
 {
   PushConstant pc;
 };
@@ -83,7 +83,7 @@ void traceRay(Ray r, inout uint seed)
 {
   payload.hitT  = 0.0F;
   payload.seed  = seed;
-  uint rayFlags = gl_RayFlagsCullBackFacingTrianglesEXT;
+  uint rayFlags = gl_RayFlagsNoneEXT;
   traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, r.origin, EPSILON, r.direction, INFINITE, 0);
   seed = payload.seed;
 }
@@ -94,7 +94,7 @@ void traceRay(Ray r, inout uint seed)
 bool traceShadow(Ray r, float maxDist)
 {
   payload.hitT = 0.0F;
-  uint rayFlags = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsCullBackFacingTrianglesEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+  uint rayFlags = gl_RayFlagsNoneEXT; //TerminateOnFirstHitEXT | gl_RayFlagsCullBackFacingTrianglesEXT | gl_RayFlagsSkipClosestHitShaderEXT;
   traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, r.origin, EPSILON, r.direction, maxDist, 0);
   bool isHit = (payload.hitT != INFINITE);  // payload will change if miss shader is invoked
   return isHit;
@@ -184,17 +184,15 @@ vec3 pathTrace(Ray r, inout uint seed)
     PrimMeshInfo pInfo = PrimMeshInfoBuf(sceneDesc.primInfoAddress).i[payload.instanceIndex];
 
     // Setting up the material
-    int         matIndex = max(0, pInfo.materialIndex);  // material of primitive mesh
-    PbrMaterial pbrMat   = evaluateMaterial(materials.m[matIndex], hit.nrm, hit.tangent, hit.bitangent, hit.uv);
+    int               matIndex  = max(0, pInfo.materialIndex);  // Material ID of hit mesh
+    GltfShadeMaterial material = materials.m[matIndex];        // Material of the hit object
+    PbrMaterial       pbrMat    = evaluateMaterial(material, hit.nrm, hit.tangent, hit.bitangent, hit.uv, isInside);
 
     // Adding emissive
     radiance += pbrMat.emissive * throughput;
 
-    bool       thin_walled = pbrMat.thinWalled;
-    const vec3 ior1        = vec3((isInside && !thin_walled) ? BSDF_USE_MATERIAL_IOR : 1.0);
-    const vec3 ior2        = vec3((isInside && !thin_walled) ? 1.0 : BSDF_USE_MATERIAL_IOR);
-
     // Apply volume attenuation
+    bool thin_walled = pbrMat.thicknessFactor == 0;
     if(isInside && !thin_walled)
     {
       const vec3 abs_coeff = absorptionCoefficient(pbrMat);
@@ -216,8 +214,6 @@ vec3 pathTrace(Ray r, inout uint seed)
     if(nextEventValid)
     {
       BsdfEvaluateData evalData;
-      evalData.ior1 = ior1;
-      evalData.ior2 = ior2;
       evalData.k1   = -r.direction;
       evalData.k2   = dirToLight;
 
@@ -237,8 +233,6 @@ vec3 pathTrace(Ray r, inout uint seed)
     // Sample BSDF
     {
       BsdfSampleData sampleData;
-      sampleData.ior1          = ior1;          // IOR current medium
-      sampleData.ior2          = ior2;          // IOR other side
       sampleData.k1            = -r.direction;  // outgoing direction
       sampleData.xi            = vec4(rand(seed), rand(seed), rand(seed), rand(seed));
       sampleData.event_type    = 0;                    ///< output: the type of event for the generated sample
@@ -270,11 +264,10 @@ vec3 pathTrace(Ray r, inout uint seed)
       }
     }
 
-
-    // Shoot shadow ray if the light is visible
+    // We are adding the contribution to the radiance only if the ray is not occluded by an object.
     if(nextEventValid)
     {
-      Ray  shadowRay = Ray(hit.shadowpos, dirToLight);
+      Ray  shadowRay = Ray(r.origin, dirToLight);
       bool inShadow  = traceShadow(shadowRay, INFINITE);
       // We are adding the contribution to the radiance only if the ray is not occluded by an object.
       if(!inShadow)
@@ -283,7 +276,7 @@ vec3 pathTrace(Ray r, inout uint seed)
       }
     }
 
-    // Russian-Roulette
+    // Russian-Roulette (minimizing live state)
     float rrPcont = min(max(throughput.x, max(throughput.y, throughput.z)) + 0.001F, 0.95F);
     if(rand(seed) >= rrPcont)
       break;                // paths with low throughput that won't contribute

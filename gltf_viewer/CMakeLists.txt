@@ -32,6 +32,8 @@ target_compile_definitions(${PROJECT_NAME}
     IMGUI_DEFINE_MATH_OPERATORS
     )
 
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
+
 source_group("Other"  
     FILES ${PACKAGE_SOURCE_FILES})
 source_group("Common"  

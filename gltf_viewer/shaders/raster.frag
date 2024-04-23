@@ -215,8 +215,6 @@ void main()
     LightContrib lightContrib = singleLightContribution(light, hit.pos, pbrMat.normal, -worldRayDirection);
 
     BsdfEvaluateData evalData;
-    evalData.ior1 = vec3(1.0);
-    evalData.ior2 = vec3(1.0);
     evalData.k1   = -worldRayDirection;
     evalData.k2   = -lightContrib.incidentVector;
 
