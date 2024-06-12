@@ -86,5 +86,15 @@ source_group("Shaders/hdr"   FILES ${GLSL_HEADERS} )
 download_files(FILENAMES FlightHelmet.zip EXTRACT)
 download_files(FILENAMES daytime.hdr std_env.hdr)
 
+
+#--------------------------------------------------------------------------------------------------
+# Memory Allocation
+#   Forcing to use our memory allocator DMA (similar to Vulkan Memory Allocator (VMA))
+# target_compile_definitions(${PROJECT_NAME} PRIVATE ALLOC_VMA)
+target_compile_definitions(${PROJECT_NAME} PRIVATE ALLOC_DMA)
+# target_compile_definitions(${PROJECT_NAME} PRIVATE ALLOC_DEDICATED)
+ 
+ 
+
 # Copy binary
 _finalize_target( ${PROJECT_NAME} )
