@@ -24,6 +24,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_NV_fragment_shader_barycentric : enable
+#extension GL_EXT_shader_explicit_arithmetic_types : enable
 
 
 #include "device_host.h"
@@ -35,7 +36,7 @@
 #include "nvvkhl/shaders/bsdf_structs.h"
 #include "nvvkhl/shaders/bsdf_functions.h"
 #include "nvvkhl/shaders/light_contrib.glsl"
-
+#include "nvvkhl/shaders/vertex_accessor.h"
 
 // clang-format off
 // Incoming 
@@ -45,15 +46,12 @@ layout(location = 0) in Interpolants {
 
 // Outgoing
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outSelection;
 
 // Buffers
 layout(buffer_reference, scalar) readonly buffer GltfMaterialBuf    { GltfShadeMaterial m[]; };
-layout(buffer_reference, scalar) readonly buffer VertexBuf          { Vertex v[]; };
-layout(buffer_reference, scalar) readonly buffer IndicesBuf         { uvec3 i[]; };
-layout(buffer_reference, scalar) readonly buffer PrimMeshInfoBuf    { PrimMeshInfo i[]; };
-layout(buffer_reference, scalar) readonly buffer InstanceInfoBuf    { InstanceInfo i[]; };
 
-layout(set = 0, binding = eFrameInfo, scalar) uniform FrameInfo_ { FrameInfo frameInfo; };
+layout(set = 0, binding = eFrameInfo, scalar) uniform FrameInfo_ { SceneFrameInfo frameInfo; };
 layout(set = 0, binding = eSceneDesc) readonly buffer SceneDesc_ { SceneDescription sceneDesc; } ;
 layout(set = 0, binding = eTextures) uniform sampler2D[] texturesMap;
 
@@ -63,28 +61,28 @@ layout(set = 1, binding = 2) uniform samplerCube u_GGXEnvSampler;  //
 
 layout(set = 2, binding = eSkyParam) uniform SkyInfo_ { ProceduralSkyShaderParameters skyInfo; };
 
-  // clang-format on
+// clang-format on
 
 
 #include "nvvkhl/shaders/pbr_mat_eval.glsl"
-#include "get_hit.glsl"
+#include "get_hit.h"
 
 layout(push_constant) uniform RasterPushConstant_
 {
-  PushConstant pc;
+  PushConstantRaster pc;
 };
 
 
 vec3 getDiffuseLight(vec3 n)
 {
   vec3 dir = rotate(n, vec3(0, 1, 0), -frameInfo.envRotation);
-  return texture(u_LambertianEnvSampler, dir).rgb * frameInfo.envColor.rgb;
+  return texture(u_LambertianEnvSampler, dir).rgb * frameInfo.envIntensity.rgb;
 }
 
 vec4 getSpecularSample(vec3 reflection, float lod)
 {
   vec3 dir = rotate(reflection, vec3(0, 1, 0), -frameInfo.envRotation);
-  return textureLod(u_GGXEnvSampler, dir, lod) * frameInfo.envColor;
+  return textureLod(u_GGXEnvSampler, dir, lod) * frameInfo.envIntensity;
 }
 
 vec3 getIBLRadianceGGX(vec3 n, vec3 v, float roughness, vec3 F0)
@@ -137,24 +135,31 @@ vec3 getIBLRadianceLambertian(vec3 n, vec3 v, float roughness, vec3 diffuseColor
 
 void main()
 {
-  // Material of the object
-  GltfShadeMaterial gltfMat = GltfMaterialBuf(sceneDesc.materialAddress).m[pc.materialID];
-
   // Current Instance
-  InstanceInfo instInfo = InstanceInfoBuf(sceneDesc.instInfoAddress).i[pc.instanceID];
+  RenderNode renderNode = RenderNodeBuf(sceneDesc.renderNodeAddress)._[pc.renderNodeID];
 
   // Mesh used by instance
-  PrimMeshInfo primMeshInfo = PrimMeshInfoBuf(sceneDesc.primInfoAddress).i[pc.meshID];
+  RenderPrimitive renderPrim = RenderPrimitiveBuf(sceneDesc.renderPrimitiveAddress)._[pc.renderPrimID];
 
   // Using same hit code as for ray tracing
-  const vec3 worldRayOrigin = vec3(frameInfo.viewInv[3].x, frameInfo.viewInv[3].y, frameInfo.viewInv[3].z);
-  HitState   hit = getHitState(primMeshInfo.vertexAddress, primMeshInfo.indexAddress, gl_BaryCoordNV, gl_PrimitiveID,
-                               worldRayOrigin, mat4x3(instInfo.objectToWorld), mat4x3(instInfo.worldToObject));
+  const vec3 worldRayOrigin = vec3(frameInfo.viewMatrixI[3].x, frameInfo.viewMatrixI[3].y, frameInfo.viewMatrixI[3].z);
+  HitState   hit            = getHitState(renderPrim, gl_BaryCoordNV, gl_PrimitiveID, worldRayOrigin,
+                                          mat4x3(renderNode.objectToWorld), mat4x3(renderNode.worldToObject));
 
+  // Material of the object
+  GltfShadeMaterial gltfMat = GltfMaterialBuf(sceneDesc.materialAddress).m[renderNode.materialID];
 
+  gltfMat.pbrBaseColorFactor *= hit.color;  // Color at vertices
   PbrMaterial pbrMat = evaluateMaterial(gltfMat, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
 
-  switch(frameInfo.dbgMethod)
+  // Selection
+  if(pc.renderNodeID == pc.selectedRenderNode)
+    outSelection = vec4(1);
+  else
+    outSelection = vec4(0);
+
+  // Debugging
+  switch(pc.dbgMethod)
   {
     case eDbgMethod_metallic:
       outColor = vec4(vec3(pbrMat.metallic), 1);
@@ -179,7 +184,7 @@ void main()
       discard;
   }
 
-  const vec3 eyePos            = vec3(frameInfo.viewInv[3].x, frameInfo.viewInv[3].y, frameInfo.viewInv[3].z);
+  const vec3 eyePos = vec3(frameInfo.viewMatrixI[3].x, frameInfo.viewMatrixI[3].y, frameInfo.viewMatrixI[3].z);
   const vec3 worldRayDirection = normalize(hit.pos - eyePos);
   const vec3 toEye             = -worldRayDirection;
 
@@ -215,8 +220,8 @@ void main()
     LightContrib lightContrib = singleLightContribution(light, hit.pos, pbrMat.normal, -worldRayDirection);
 
     BsdfEvaluateData evalData;
-    evalData.k1   = -worldRayDirection;
-    evalData.k2   = -lightContrib.incidentVector;
+    evalData.k1 = -worldRayDirection;
+    evalData.k2 = -lightContrib.incidentVector;
 
     bsdfEvaluate(evalData, pbrMat);
 

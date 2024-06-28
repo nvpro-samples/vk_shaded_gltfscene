@@ -28,26 +28,21 @@
 
 #include "device_host.h"
 #include "dh_bindings.h"
-#include "payload.glsl"
+#include "payload.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
+#include "nvvkhl/shaders/vertex_accessor.h"
 
 
-hitAttributeEXT vec2 attribs;
+hitAttributeEXT vec2 barys;
 
 // clang-format off
 layout(location = 0) rayPayloadInEXT HitPayload payload;
-
-layout(buffer_reference, scalar) readonly buffer VertexBuf          { Vertex v[]; };
-layout(buffer_reference, scalar) readonly buffer IndicesBuf         { uvec3 i[]; };
-layout(buffer_reference, scalar) readonly buffer PrimMeshInfoBuf    { PrimMeshInfo i[]; };
-
-
 layout(set = 1, binding = eSceneDesc) readonly buffer SceneDesc_ { SceneDescription sceneDesc; };
-  // clang-format on
+// clang-format on
 
 
 #include "nvvkhl/shaders/func.glsl"
-#include "get_hit.glsl"
+#include "get_hit.h"
 
 
 layout(constant_id = 0) const int USE_SER = 0;
@@ -58,13 +53,14 @@ layout(constant_id = 0) const int USE_SER = 0;
 void main()
 {
   // Retrieve the Primitive mesh buffer information
-  PrimMeshInfo primMeshInfo = PrimMeshInfoBuf(sceneDesc.primInfoAddress).i[gl_InstanceCustomIndexEXT];
+  RenderNode      renderNode = RenderNodeBuf(sceneDesc.renderNodeAddress)._[gl_InstanceID];
+  RenderPrimitive renderPrim = RenderPrimitiveBuf(sceneDesc.renderPrimitiveAddress)._[gl_InstanceCustomIndexEXT];
 
-  const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
+  const vec3 barycentrics = vec3(1.0 - barys.x - barys.y, barys.x, barys.y);
   bool       frontFacing  = (gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT);
 
-  payload.hitT          = gl_HitTEXT;
-  payload.instanceIndex = gl_InstanceCustomIndexEXT;
-  payload.hit = getHitState(primMeshInfo.vertexAddress, primMeshInfo.indexAddress, barycentrics, gl_PrimitiveID,
-                            gl_WorldRayOriginEXT, gl_ObjectToWorldEXT, gl_WorldToObjectEXT);
+  payload.hitT    = gl_HitTEXT;
+  payload.rnodeID = gl_InstanceID;
+  payload.rprimID = gl_InstanceCustomIndexEXT;  // Should be equal to renderNode.rprimID
+  payload.hit = getHitState(renderPrim, barycentrics, gl_PrimitiveID, gl_WorldRayOriginEXT, gl_ObjectToWorldEXT, gl_WorldToObjectEXT);
 }

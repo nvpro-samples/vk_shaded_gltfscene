@@ -4,3 +4,7 @@
 */_autogen/
 .obsidian/
 _Install/
+
+.vscode/settings.json
+
+_autogen/

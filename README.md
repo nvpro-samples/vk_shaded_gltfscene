@@ -1,26 +1,35 @@
 # Vulkan glTF Scene Raytrace/Raster
 
 
-|RTX | Raster|
+|Pathtracer | Raster|
 |:------------: | :------------: |
-|![](doc/rtx.png) |![](doc/raster.png)|
+|![](doc/pathtrace.png) |![](doc/raster.png)|
 
 This sample loads [glTF](https://www.khronos.org/gltf/) (.gltf/.glb) scenes and will ray trace or rasterize it using glTF 2.0 material and textures. It can display an HDR image in the background and be lit by that HDR or use a built-in Sun&Sky. It renders in multiple passes, background, scene, and then tone maps the result. It shows how multiple resources (geometry, materials and textures) can be shared between the two rendering systems. 
 
-## RTX
+## Pathtracer
 
 Implements a path tracer with global illumination. 
 
+![](doc/pathtracer_settings.png)
+
 The options are:
-* Depth : number of bounces the path can do
-* Samples: how many samples per pixel at each frame iteration
-* Frames: the maximum number of frame iteration until the application idles
+* Max Depth : number of bounces the path can do
+* Max Samples: how many samples per pixel at each frame iteration
+* Debug Method: shows information like base color, metallic, roughness, and some attributes
+
 
 ## Raster
 
 The rasterizer uses the same Vulkan resources as the path tracer; scene geometry, scene data, textures. And for shading, it shares many of the same functions.
 
-The only option for raster, is to display wireframe on top.
+![](doc/raster_settings.png)
+
+The options are:
+* Show wireframe: display wireframe on top of the geometry
+* Debug Method: shows information like base color, metallic, roughness, and some attributes
+
+Example with wireframe option turned on
 
 ![](doc/wireframe.png)
 
@@ -53,6 +62,14 @@ We could not get good results without a tone mapper. This is done with a compute
 
 ![](doc/tonemapper.png)
 
+Multiple tonemapper are supported:
+* [Filmic](http://filmicworlds.com/blog/filmic-tonemapping-operators/)
+* Uncharted 2
+* Clip : Simple Gamma correction (linear to sRGB)
+* [ACES](https://www.oscars.org/science-technology/sci-tech-projects/aces): Academy Color Encoding System
+* [AgX](https://github.com/EaryChow/AgX)
+* [Khronos PBR](https://github.com/KhronosGroup/ToneMapping/blob/main/PBR_Neutral/README.md#pbr-neutral-specification) : PBR Neutral Specification
+
 
 ## Camera
 
@@ -74,6 +91,8 @@ Ex: `{0.47115, 0.32620, 0.52345}, {-0.02504, -0.12452, 0.03690}, {0.00000, 1.000
 
 It is also possible to save and restore multiple cameras in the second tab. Press the `+` button to save a camera, the middle button to delete it. By pressing one of the saved cameras, its position, interests, orientation and FOV will be changed smoothly. 
 
+**Note**: If the glTF scene contains multiple cameras, they will be showing here. 
+
 ![](doc/cam_2.png)
 
 ### Other modes 
@@ -86,45 +105,135 @@ Other navigation modes also exist, like fly, where the `w`, `a`, `s`, `d` keys a
 ----
 ## Schema of the Program
 
-The `main()` is adding all the extensions which is needed for this application and where the `Raytracing` class is created. 
+The nvvk::Application is a class that provides a framework for creating Vulkan applications. It encapsulates the Vulkan instance, device, and surface creation, as well as window management and event handling.
 
-### onAttach()
-In `onAttach()` we are creating many helpers, such as
+When using `nvvk::Application`, you can attach `nvvkhl::IAppElement` to it and each element will be called for the different state, allowing to customize the behavior of your application. The `nvvkhl::IAppElement` class provides default implementations for these functions, so you only need to override the ones you need.
 
-* **nvvk::DebugUtil** : utility for setting debug information visible in Nsight Graphics
-* **AllocVma** : the allocator of resources based on VMA, for images, buffers, BLAS/TLAS
-* **Scene** : the glTF scene, loaded with tiny_gltf and data adjusted for our needs.
-* **SceneVk** : the Vulkan version of Scene, basically vertices and indices in buffers, textures uploaded.
-* **SceneRtx** : the version of Scene for ray tracing, BLAS/TLAS using information from SceneVk
-* **TonemapperPostProcess** : a tone mapper post-process
-* **nvvk::SBTWrapper** : an helper to create the Shading Binding Table
-* **SkyPass** : creates a synthetic sky, for both raster and ray tracing.
-* **nvvk::RayPickerKHR** : tool that sends a ray and return hit information.
-* **nvvk::AxisVK** : show a 3D axis in the bottom left corner of the screen
-* **HdrEnv** : loads HDR and pre compute the importance acceleration structure sampling information.
-* **HdrEnvDome** : pre-convolute the diffuse and specular contribution for raster HDR lighting.
+Here is a brief overview of how `nvvk::Application` works:
 
-### onDetach()
+### Initialization:
+When you create an instance of `nvvk::Application`, it sets up the Vulkan instance, device, and surface. It also creates a window and sets up event handling.
 
-Will destroy all allocated resources
+### Attaching Elements
+In `main()` we are attaching many elements, like:
+* `ElementCamera` : this allow to control a singleton camera
+* `ElementProfiler` : allow to time the execution on the GPU
+* `ElementBenchmarkParameters` : command line arguments and test purpose
+* `ElementLogger` : redirect log information in a window
+* `ElementNvml` : shows the status of the GPU
 
-### onUIMenu()
+But the main one that interest us, and which is the main of this application is `GltfRendererElement`. This is the one that will be controlling the scene and rendering.
 
+
+### Main Loop: 
+The `nvvk::Application` class provides a main loop that continuously processes events and updates the application state. Inside the main loop, it calls the following functions:
+
+* **onAttach()**:<br> 
+This function is called whenever the element is attached to the application. In `GltfRendererElement`, we are creating the resource needed internally. 
+
+* **onDetach()**: <br>
+This function is called when the user tries to close the window. You can override this function to handle window close events.
+
+* **onRender(VkCommandBuffer)**: <br>
+This function is called to render the frame using the current command buffer of the frame. You can override this function to perform rendering operations using Vulkan. In `GltfRendererElement` this is where the active renderer is called.
+
+* **onResize()**: <br>
+This function is called when the `viewport` is resized. You can override this function to handle window resize events. In `GltfRendererElement` the G-Buffer will be re-created
+
+* **onUIRender()**: <br>
+This function is called to allow the `IAppElement` to render the UI and to query any mouse or keyboard event. In `GltfRendererElement`, we render the UI, but also the final image. The rendered image is consider a UI element, and that image covers the entire `viewport` ImGui window. 
+
+* **onUIMenu()** <br>
 Will be modifying what we see in the the window title. It will also create the menu, like `File`, `Help` and deal with some key combinations.
 
-### onFileDrop()
-
+* **onFileDrop()** <br>
 Will receive the path of the file been dropped on. If it is a .gltf, .glb or .hdr, it will load that file. 
 
-### onUIRender()
 
-This is where the GUI rendering is located, the parameters that can be changed. This is also where we display the rendered image. The rendered image is a component of the user interface that covers the Viewport window. 
+## glTF Core features
 
-### onRender()
+* [x] glTF 2.0 (.gltf/.glb)
+* [x] images (HDR, PNG, JPEG, ...)
+* [x] buffers (geometry, animation, skinning, ...)
+* [x] textures (base color, normal, metallic, roughness, ...)
+* [x] materials (PBR, ...)
+* [x] animations
+* [ ] skins
+* [x] cameras
+* [x] lights
+* [x] nodes
+* [x] scenes
+* [x] samplers
+* [x] textures
+* [x] extensions
 
-Called with the frame command buffer, sets the information used by shaders in some buffers, then calls either `raytraceScene(cmd)` or `rasterScene(cmd)`.
+What is currently not supported are animations and skins, multiple textures coordinates, morph targets, color at vertices, and some extensions.
 
-Tone mapper is applied to the rendered image, and axis draw on top of the final image.
+## GLTF Extensions
+ Here are the list of extensions that are supported by this application
+
+* [ ] KHR_animation_pointer
+* [ ] KHR_draco_mesh_compression
+* [ ] KHR_lights_punctual
+* [ ] KHR_materials_anisotropy
+* [ ] KHR_materials_clearcoat
+* [ ] KHR_materials_dispersion
+* [x] KHR_materials_emissive_strength
+* [x] KHR_materials_ior
+* [ ] KHR_materials_iridescence
+* [ ] KHR_materials_sheen
+* [x] KHR_materials_specular
+* [x] KHR_materials_transmission
+* [ ] KHR_materials_unlit
+* [x] KHR_materials_variants
+* [x] KHR_materials_volume
+* [ ] KHR_mesh_quantization
+* [ ] KHR_texture_basisu
+* [x] KHR_texture_transform
+* [ ] KHR_xmp_json_ld
+* [x] EXT_mesh_gpu_instancing
 
 ----
+
+## Scene Graph
+
+The GLTF scene is loaded using tinygltf and then converted to a Vulkan version. The Vulkan version is a simplified version of the scene, where the geometry is stored in buffers, and the textures are uploaded to the GPU. The Vulkan version is used for both raster and ray tracing.
+
+The scene is composed of nodes, where each node can have children and each node can have a mesh. The mesh is composed of primitives, where each primitive has a material. The material is composed of textures and parameters. However, none of this is directly used in the rendering, as we are using a simplified version of the scene.
+
+![](doc/scene_graph.png)
+
+Once the scene has been loaded, we proceed to parse it in order to collect the RenderNodes and RenderPrimitives. The RenderNode represents the flattened version of the tree of nodes, where the world transformation matrix and the material are stored. The RenderPrimitive, in contrast, represents the unique version of the primitive, where the index and vertex buffers are stored.
+
+RenderNodes represent the elements to be rendered, while RenderPrimitives serve as references to the data utilized for rendering.
+
+### Animation
+
+If there is animation in the scene, a new section will appear under the Scene section.
+It allows to play/pause, step and reset the animation, as well as changing its speed.
+
+![](doc/animation_controls.png)
+
+
+### Multiple Scene 
+
+If there are multiple scenes,  a new section will appear under the Scene section.
+It will show all the scenes and their name. Clicking on a scene name will switch to the scene.
+
+![](doc/multiple_scenes.png)
+
+
+### Material Variant
+
+If there are multiple material variant, a new section will appear under the Scene section.
+It will show all the material variant and their name. Clicking on a variant name will apply it on the models.
+
+![](doc/material_variant.png)
+
+
+### Scene Graph UI
+
+![](doc/scene_graph_ui.png)
+
+It is possible to visualize the scene hierarchy, to select node, to modify their transformation and their material, to some level.
 

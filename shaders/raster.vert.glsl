@@ -30,15 +30,15 @@
 #include "nvvkhl/shaders/dh_scn_desc.h"
 
 // clang-format off
-layout(buffer_reference, scalar) buffer  InstancesInfo { InstanceInfo i[]; };
+layout(buffer_reference, scalar) buffer  RenderNodeBuf { RenderNode _[]; };
 
-layout(set = 0, binding = eFrameInfo) uniform FrameInfo_ { FrameInfo frameInfo; };
+layout(set = 0, binding = eFrameInfo) uniform FrameInfo_ { SceneFrameInfo frameInfo; };
 layout(set = 0, binding = eSceneDesc) readonly buffer SceneDesc_ { SceneDescription sceneDesc; } ;
 // clang-format on
 
 layout(push_constant) uniform RasterPushConstant_
 {
-  PushConstant pc;
+  PushConstantRaster pc;
 };
 
 layout(location = 0) in vec3 i_pos;
@@ -57,8 +57,7 @@ out gl_PerVertex
 
 void main()
 {
-  InstancesInfo instances = InstancesInfo(sceneDesc.instInfoAddress);
-  InstanceInfo  instinfo  = instances.i[pc.instanceID];
-  OUT.pos                 = vec3(instinfo.objectToWorld * vec4(i_pos, 1.0));
-  gl_Position             = frameInfo.proj * frameInfo.view * vec4(OUT.pos, 1.0);
+  RenderNode renderNode = RenderNodeBuf(sceneDesc.renderNodeAddress)._[pc.renderNodeID];
+  OUT.pos               = vec3(renderNode.objectToWorld * vec4(i_pos, 1.0));
+  gl_Position           = frameInfo.projMatrix * frameInfo.viewMatrix * vec4(OUT.pos, 1.0);
 }

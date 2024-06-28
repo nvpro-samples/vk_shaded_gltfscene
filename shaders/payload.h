@@ -7,15 +7,11 @@ precision highp float;
 
 struct HitPayload
 {
-  uint  seed;
-  float hitT;
-  int   instanceIndex;
+  uint     seed;
+  float    hitT;
+  int      rnodeID;
+  int      rprimID;
   HitState hit;
-//  vec3  pos;
-//  vec3  nrm;
-//  vec3  tangent;
-//  vec3  bitangent;
-//  vec2  uv;
 };
 
 #endif  // PAYLOAD_H
