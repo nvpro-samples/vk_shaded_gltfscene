@@ -25,17 +25,18 @@
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_NV_fragment_shader_barycentric : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
+#extension GL_EXT_debug_printf : enable
 
 
 #include "device_host.h"
 #include "dh_bindings.h"
 #include "nvvkhl/shaders/dh_sky.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
-#include "nvvkhl/shaders/func.glsl"
+#include "nvvkhl/shaders/func.h"
 #include "nvvkhl/shaders/pbr_mat_struct.h"
 #include "nvvkhl/shaders/bsdf_structs.h"
 #include "nvvkhl/shaders/bsdf_functions.h"
-#include "nvvkhl/shaders/light_contrib.glsl"
+#include "nvvkhl/shaders/light_contrib.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
 
 // clang-format off
@@ -63,8 +64,7 @@ layout(set = 2, binding = eSkyParam) uniform SkyInfo_ { ProceduralSkyShaderParam
 
 // clang-format on
 
-
-#include "nvvkhl/shaders/pbr_mat_eval.glsl"
+#include "nvvkhl/shaders/pbr_mat_eval.h"
 #include "get_hit.h"
 
 layout(push_constant) uniform RasterPushConstant_
@@ -150,7 +150,8 @@ void main()
   GltfShadeMaterial gltfMat = GltfMaterialBuf(sceneDesc.materialAddress).m[renderNode.materialID];
 
   gltfMat.pbrBaseColorFactor *= hit.color;  // Color at vertices
-  PbrMaterial pbrMat = evaluateMaterial(gltfMat, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
+  MeshState   mesh   = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, hit.uv, false);
+  PbrMaterial pbrMat = evaluateMaterial(gltfMat, mesh);
 
   // Selection
   if(pc.renderNodeID == pc.selectedRenderNode)
@@ -165,22 +166,31 @@ void main()
       outColor = vec4(vec3(pbrMat.metallic), 1);
       return;
     case eDbgMethod_roughness:
-      outColor = vec4(vec3(pbrMat.roughness), 1);
+      outColor = vec4(pbrMat.roughness, 0, 1);
       return;
     case eDbgMethod_normal:
-      outColor = vec4(vec3(pbrMat.normal * .5 + .5), 1);
+      outColor = vec4(vec3(pbrMat.N * .5 + .5), 1);
+      return;
+    case eDbgMethod_tangent:
+      outColor = vec4(pbrMat.T * .5 + .5, 1);
+      return;
+    case eDbgMethod_bitangent:
+      outColor = vec4(pbrMat.B * .5 + .5, 1);
       return;
     case eDbgMethod_basecolor:
-      outColor = vec4(vec3(pbrMat.albedo), 1);
+      outColor = vec4(vec3(pbrMat.baseColor), 1);
       return;
     case eDbgMethod_emissive:
       outColor = vec4(vec3(pbrMat.emissive), 1);
+      return;
+    case eDbgMethod_opacity:
+      outColor = vec4(vec3(pbrMat.opacity * (1.0 - pbrMat.transmission)), 1);
       return;
   }
 
   if(gltfMat.alphaMode == ALPHA_MASK)
   {
-    if(pbrMat.albedo.a < gltfMat.alphaCutoff)
+    if(pbrMat.opacity < gltfMat.alphaCutoff)
       discard;
   }
 
@@ -191,21 +201,22 @@ void main()
   // Result
   vec3 contribution = vec3(0);
 
+  vec3  f0            = mix(vec3(0.04), pbrMat.baseColor, pbrMat.metallic);
   float ambientFactor = 0.3;
   if(frameInfo.useSky != 0)
   {
-    vec3 ambientColor = mix(skyInfo.groundColor.rgb, skyInfo.skyColor.rgb, pbrMat.normal.y * 0.5 + 0.5) * ambientFactor;
-    contribution += ambientColor * pbrMat.albedo.rgb;
-    contribution += ambientColor * pbrMat.f0;
+    vec3 ambientColor = mix(skyInfo.groundColor.rgb, skyInfo.skyColor.rgb, pbrMat.N.y * 0.5 + 0.5) * ambientFactor;
+    contribution += ambientColor * pbrMat.baseColor;
+    contribution += ambientColor;  // *pbrMat.f0;
   }
   else
   {
     // Calculate lighting contribution from image based lighting source (IBL)
-    float perceptualRoughness = pbrMat.roughness * pbrMat.roughness;
-    vec3  c_diff              = mix(pbrMat.albedo.rgb, vec3(0), pbrMat.metallic);
+    float perceptualRoughness = mix(pbrMat.roughness.r, pbrMat.roughness.g, 0.5);  // Ad-hoc anisotropic -> isotropic
+    vec3  c_diff              = mix(pbrMat.baseColor, vec3(0), pbrMat.metallic);
 
-    vec3 f_specular = getIBLRadianceGGX(pbrMat.normal, -worldRayDirection, perceptualRoughness, pbrMat.f0);
-    vec3 f_diffuse = getIBLRadianceLambertian(pbrMat.normal, -worldRayDirection, perceptualRoughness, c_diff, pbrMat.f0);
+    vec3 f_specular = getIBLRadianceGGX(pbrMat.N, -worldRayDirection, perceptualRoughness, f0);
+    vec3 f_diffuse  = getIBLRadianceLambertian(pbrMat.N, -worldRayDirection, perceptualRoughness, c_diff, f0);
 
     contribution += f_specular + f_diffuse;
   }
@@ -217,7 +228,7 @@ void main()
   for(int i = 0; i < frameInfo.nbLights; i++)
   {
     Light        light        = frameInfo.light[i];
-    LightContrib lightContrib = singleLightContribution(light, hit.pos, pbrMat.normal, -worldRayDirection);
+    LightContrib lightContrib = singleLightContribution(light, hit.pos, pbrMat.N, -worldRayDirection);
 
     BsdfEvaluateData evalData;
     evalData.k1 = -worldRayDirection;
@@ -230,5 +241,5 @@ void main()
     contribution += w * evalData.bsdf_glossy;
   }
 
-  outColor = vec4(contribution, pbrMat.albedo.a);
+  outColor = vec4(contribution, pbrMat.opacity);
 }

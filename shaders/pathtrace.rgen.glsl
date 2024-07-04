@@ -38,8 +38,8 @@ layout(location = 0) rayPayloadEXT HitPayload hitPayload;
 
 #include "rt_payload.h"
 
-#include "nvvkhl/shaders/pbr_mat_eval.glsl"      // Need texturesMap[]
-#include "nvvkhl/shaders/hdr_env_sampling.glsl"  // nedd envSamplingData[]
+#include "nvvkhl/shaders/pbr_mat_eval.h"      // Need texturesMap[]
+#include "nvvkhl/shaders/hdr_env_sampling.h"  // nedd envSamplingData[]
 
 // Depend on hitPayload and other layouts
 #include "rt_rtx.h"
@@ -72,12 +72,17 @@ void main()
   // Subpixel jitter: send the ray through a different position inside the pixel each time, to provide antialiasing.
   vec2 subpixelJitter = pc.frame == 0 ? vec2(0.5f, 0.5f) : vec2(rand(seed), rand(seed));
 
+  float focalDistance = 0.0f;
+  float aperture      = 0.0f;
+
   // Sampling n times the pixel
-  vec3 pixel_color = samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
+  vec3 pixel_color = samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI,
+                                 frameInfo.viewMatrixI, focalDistance, aperture);
   for(int s = 1; s < pc.maxSamples; s++)
   {
     subpixelJitter = vec2(rand(seed), rand(seed));
-    pixel_color += samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
+    pixel_color += samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI,
+                               focalDistance, aperture);
   }
   pixel_color /= pc.maxSamples;
 

@@ -220,7 +220,7 @@ void gltfr::Scene::postSceneCreateProcess(Resources& resources, const std::strin
 //
 bool gltfr::Scene::save(const std::string& filename) const
 {
-  if(m_gltfScene && m_gltfScene->valid())
+  if(m_gltfScene && m_gltfScene->valid() && !filename.empty())
   {
     // First, copy the camera
     nvh::gltf::RenderCamera camera;
@@ -562,7 +562,7 @@ bool gltfr::Scene::onUI(Resources& resources, Settings& settings, GLFWwindow* wi
     // When switching the environment, reset Firefly max luminance
     if(cache_env_system != settings.envSystem)
     {
-      settings.maxLuminance = settings.envSystem == Settings::eSky ? 1.f : m_hdrEnv->getIntegral();
+      settings.maxLuminance = settings.envSystem == Settings::eSky ? 100.f : m_hdrEnv->getIntegral();
     }
 
     PE::begin();

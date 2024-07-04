@@ -325,7 +325,7 @@ void RendererRaster::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& scen
     // Silhouette: rendering the selected node in the second color attachment
     if(m_silhouette->isValid())
     {
-      m_silhouette->setColor(settings.silhouetteColor);
+      m_silhouette->setColor(nvvkhl_shaders::toLinear(settings.silhouetteColor));
       m_silhouette->render(cmd, m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSilhouette),
                            m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSuperSample),
                            m_gSuperSampleBuffers->getSize());
@@ -361,7 +361,8 @@ bool RendererRaster::onUI()
     PE::begin();
     changed |= PE::Checkbox("Show Wireframe", &g_rasterSettings.showWireframe);
     changed |= PE::Checkbox("Use Super Sample", &g_rasterSettings.useSuperSample);
-    changed |= PE::Combo("Debug Method", &g_rasterSettings.dbgMethod, "None\0Metallic\0Roughness\0Normal\0BaseColor\0Emissive\0\0");
+    changed |= PE::Combo("Debug Method", &g_rasterSettings.dbgMethod,
+                         "None\0Metallic\0Roughness\0Normal\0Tangent\0Bitangent\0BaseColor\0Emissive\0Opacity\0\0");
     PE::end();
     ImGui::PopID();
   }

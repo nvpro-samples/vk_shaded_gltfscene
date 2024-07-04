@@ -51,10 +51,10 @@ struct Settings
   bool         showAxis        = true;         // Show the axis (bottom left)
   EnvSystem    envSystem       = eSky;         // Environment system: Sky or HDR
   RenderSystem renderSystem    = ePathtracer;  // Renderer to use
-  float        hdrEnvIntensity = 1.F;          // Intensity of the environment (HDR)
-  float        hdrEnvRotation  = 0.F;          // Rotation of the environment (HDR)
-  float        maxLuminance    = 1;            // For firefly
-  glm::vec3    silhouetteColor = {1.0f, 1.0f, 1.0f};
+  float        hdrEnvIntensity = 1.0f;         // Intensity of the environment (HDR)
+  float        hdrEnvRotation  = 0.0f;         // Rotation of the environment (HDR)
+  float        maxLuminance    = 10.0f;        // For firefly
+  glm::vec3    silhouetteColor = {0.6f, 0.4f, 0.0f};
 
   void onUI();
 };

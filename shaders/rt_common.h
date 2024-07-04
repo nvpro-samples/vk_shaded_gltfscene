@@ -142,13 +142,21 @@ vec3 pathTrace(Ray r, inout uint seed)
     // Setting up the material
     GltfShadeMaterial material = materials.m[renderNode.materialID];  // Material of the hit object
     material.pbrBaseColorFactor *= hit.color;                         // Color at vertices
-    PbrMaterial pbrMat = evaluateMaterial(material, hit.nrm, hit.tangent, hit.bitangent, hit.uv, isInside);
+    MeshState   mesh   = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, hit.uv, isInside);
+    PbrMaterial pbrMat = evaluateMaterial(material, mesh);
 
     // Adding emissive
     radiance += pbrMat.emissive * throughput;
 
+    // Unlit
+    if(material.unlit > 0)
+    {
+      radiance += pbrMat.baseColor;
+      return radiance;
+    }
+
     // Apply volume attenuation
-    bool thin_walled = pbrMat.thicknessFactor == 0;
+    bool thin_walled = (pbrMat.thickness == 0);
     if(isInside && !thin_walled)
     {
       const vec3 abs_coeff = absorptionCoefficient(pbrMat);
@@ -161,7 +169,7 @@ vec3 pathTrace(Ray r, inout uint seed)
     vec3  contribution         = vec3(0);
     vec3  dirToLight           = vec3(0);
     float lightPdf             = 0.F;
-    vec3  lightRadianceOverPdf = sampleLights(hit.pos, pbrMat.normal, r.direction, seed, dirToLight, lightPdf);
+    vec3  lightRadianceOverPdf = sampleLights(hit.pos, pbrMat.N, r.direction, seed, dirToLight, lightPdf);
 
     // do not next event estimation (but delay the adding of contribution)
     const bool nextEventValid = ((dot(dirToLight, hit.geonrm) > 0.0f) != isInside) && lightPdf != 0.0f;
@@ -172,6 +180,7 @@ vec3 pathTrace(Ray r, inout uint seed)
       BsdfEvaluateData evalData;
       evalData.k1 = -r.direction;
       evalData.k2 = dirToLight;
+      evalData.xi = vec3(rand(seed), rand(seed), rand(seed));
 
       bsdfEvaluate(evalData, pbrMat);
 
@@ -190,7 +199,7 @@ vec3 pathTrace(Ray r, inout uint seed)
     {
       BsdfSampleData sampleData;
       sampleData.k1            = -r.direction;  // outgoing direction
-      sampleData.xi            = vec4(rand(seed), rand(seed), rand(seed), rand(seed));
+      sampleData.xi            = vec3(rand(seed), rand(seed), rand(seed));
       sampleData.event_type    = 0;                    ///< output: the type of event for the generated sample
       sampleData.pdf           = 0.0;                  // output: pdf (non-projected hemisphere)
       sampleData.bsdf_over_pdf = vec3(0.0, 0.0, 0.0);  ///< output: bsdf * dot(normal, k2) / pdf
@@ -248,9 +257,20 @@ vec3 pathTrace(Ray r, inout uint seed)
 //-----------------------------------------------------------------------
 // Sampling the pixel
 //-----------------------------------------------------------------------
-vec3 samplePixel(inout uint seed, vec2 samplePos, vec2 subpixelJitter, vec2 imageSize, mat4 projMatrixI, mat4 viewMatrixI)
+vec3 samplePixel(inout uint seed, vec2 samplePos, vec2 subpixelJitter, vec2 imageSize, mat4 projMatrixI, mat4 viewMatrixI, float focalDist, float aperture)
 {
   Ray ray = getRay(samplePos, subpixelJitter, imageSize, projMatrixI, viewMatrixI);
+
+  // Depth-of-Field
+  vec3  focalPoint        = focalDist * ray.direction;
+  float cam_r1            = rand(seed) * M_TWO_PI;
+  float cam_r2            = rand(seed) * aperture;
+  vec4  cam_right         = viewMatrixI * vec4(1, 0, 0, 0);
+  vec4  cam_up            = viewMatrixI * vec4(0, 1, 0, 0);
+  vec3  randomAperturePos = (cos(cam_r1) * cam_right.xyz + sin(cam_r1) * cam_up.xyz) * sqrt(cam_r2);
+  vec3  finalRayDir       = normalize(focalPoint - randomAperturePos);
+
+  ray = Ray(ray.origin + randomAperturePos, finalRayDir);
 
   vec3 radiance = pathTrace(ray, seed);
 
@@ -287,20 +307,27 @@ vec3 debugRendering(vec2 samplePos, vec2 imageSize)
   // Setting up the material
   GltfMaterialBuf   materials = GltfMaterialBuf(sceneDesc.materialAddress);  // Buffer of materials
   GltfShadeMaterial material  = materials.m[renderNode.materialID];          // Material of the hit object
-  PbrMaterial       pbrMat    = evaluateMaterial(material, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
+  MeshState         mesh      = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, hit.uv, false);
+  PbrMaterial       pbrMat    = evaluateMaterial(material, mesh);
 
   switch(pc.dbgMethod)
   {
     case eDbgMethod_metallic:
       return vec3(pbrMat.metallic);
     case eDbgMethod_roughness:
-      return vec3(pbrMat.roughness);
+      return vec3(pbrMat.roughness.xy, 0);
     case eDbgMethod_normal:
-      return vec3(pbrMat.normal * .5 + .5);
+      return vec3(pbrMat.N * .5 + .5);
+    case eDbgMethod_tangent:
+      return pbrMat.T * .5 + .5;
+    case eDbgMethod_bitangent:
+      return pbrMat.B * .5 + .5;
     case eDbgMethod_basecolor:
-      return vec3(pbrMat.albedo);
+      return vec3(pbrMat.baseColor);
     case eDbgMethod_emissive:
       return vec3(pbrMat.emissive);
+    case eDbgMethod_opacity:
+      return vec3(pbrMat.opacity * (1.0 - pbrMat.transmission));
   }
 
   return vec3(0);

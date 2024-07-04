@@ -6,9 +6,9 @@
 
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-#include "nvvkhl/shaders/ray_util.glsl"
+#include "nvvkhl/shaders/ray_util.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
-#include "nvvkhl/shaders/func.glsl"
+#include "nvvkhl/shaders/func.h"
 #include "hit_state.h"
 
 precision highp float;

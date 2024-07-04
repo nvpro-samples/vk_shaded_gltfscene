@@ -25,6 +25,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
+#extension GL_EXT_debug_printf : enable
 
 
 #include "device_host.h"
@@ -34,8 +35,9 @@
 layout(location = 0) rayPayloadInEXT HitPayload hitPayload;
 #include "rt_payload.h"
 
-#include "nvvkhl/shaders/pbr_mat_eval.glsl"      // Need texturesMap[]
-#include "nvvkhl/shaders/hdr_env_sampling.glsl"  // nedd envSamplingData[]
+
+#include "nvvkhl/shaders/pbr_mat_eval.h"      // Need texturesMap[]
+#include "nvvkhl/shaders/hdr_env_sampling.h"  // nedd envSamplingData[]
 
 // For the hitTest()
 #include "rt_common.h"

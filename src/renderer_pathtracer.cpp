@@ -48,10 +48,11 @@ namespace gltfr {
 
 struct PathtraceSettings
 {
-  int maxDepth{5};
-  int maxSamples{1};
-  int dbgMethod{0};
-  int renderMode{1};  // RTX / Indirect
+  int   maxDepth{50};
+  int   maxSamples{1};
+  int   dbgMethod{0};
+  int   renderMode{1};  // RTX / Indirect
+  float aperture{0.0f};
 } g_pathtraceSettings;
 
 // This shows path tracing using ray tracing
@@ -87,8 +88,13 @@ private:
   std::unique_ptr<nvvkhl::PipelineContainer>    m_indirectPipe{};  // Raytracing pipeline
   std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers{};      // G-Buffers: RGBA32F
   std::unique_ptr<nvvk::DebugUtil>              m_dutil{};
+  std::unique_ptr<Silhouette>                   m_silhouette{};
 
-  std::unique_ptr<Silhouette> m_silhouette{};
+  enum GBufferType
+  {
+    eRGBLinear,
+    eSilhouette
+  };
 
   // Creating all shaders
   enum ShaderStages
@@ -260,7 +266,10 @@ void RendererPathtracer::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& 
   m_pushConst.dbgMethod          = g_pathtraceSettings.dbgMethod;
   m_pushConst.maxLuminance       = settings.maxLuminance;
   m_pushConst.selectedRenderNode = scene.getSelectedRenderNode();
-  m_pushConst.mouseCoord         = g_dbgPrintf->getMouseCoord();
+  m_pushConst.focalDistance      = glm::length(CameraManip.getEye() - CameraManip.getCenter());
+  m_pushConst.aperture           = glm::radians(g_pathtraceSettings.aperture);
+  if(g_dbgPrintf)
+    m_pushConst.mouseCoord = g_dbgPrintf->getMouseCoord();
 
   // Ray trace
   VkDescriptorSet dsHdr   = scene.m_hdrEnv->getDescriptorSet();
@@ -301,8 +310,8 @@ void RendererPathtracer::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& 
   // Silhouette
   if(m_silhouette->isValid())
   {
-    m_silhouette->setColor(settings.silhouetteColor);
-    m_silhouette->render(cmd, m_gBuffers->getDescriptorImageInfo(1), m_gBuffers->getDescriptorImageInfo(), size);
+    m_silhouette->setColor(nvvkhl_shaders::toLinear(settings.silhouetteColor));
+    m_silhouette->render(cmd, m_gBuffers->getDescriptorImageInfo(eSilhouette), m_gBuffers->getDescriptorImageInfo(), size);
   }
 }
 
@@ -316,9 +325,12 @@ bool RendererPathtracer::onUI()
   if(ImGui::CollapsingHeader("RendererPathtracer"))
   {
     PE::begin();
-    changed |= PE::SliderInt("Max Depth", &g_pathtraceSettings.maxDepth, 1, 10);
+    changed |= PE::SliderInt("Max Depth", &g_pathtraceSettings.maxDepth, 1, 100);
     changed |= PE::SliderInt("Max Samples", &g_pathtraceSettings.maxSamples, 1, 100);
-    changed |= PE::Combo("Debug Method", &g_pathtraceSettings.dbgMethod, "None\0Metallic\0Roughness\0Normal\0BaseColor\0Emissive\0\0");
+    changed |= PE::SliderFloat("Aperture", &g_pathtraceSettings.aperture, 0.0f, 0.5f, "%.3f",
+                               ImGuiSliderFlags_Logarithmic, "Out-of-focus effect");
+    changed |= PE::Combo("Debug Method", &g_pathtraceSettings.dbgMethod,
+                         "None\0Metallic\0Roughness\0Normal\0Tangent\0Bitangent\0BaseColor\0Emissive\0Opacity\0\0");
     changed |= PE::Combo("Render Mode", &g_pathtraceSettings.renderMode, "RTX\0Indirect\0\0");
     PE::end();
   }

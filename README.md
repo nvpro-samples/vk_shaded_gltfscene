@@ -175,16 +175,16 @@ What is currently not supported are animations and skins, multiple textures coor
 * [ ] KHR_animation_pointer
 * [ ] KHR_draco_mesh_compression
 * [ ] KHR_lights_punctual
-* [ ] KHR_materials_anisotropy
-* [ ] KHR_materials_clearcoat
+* [x] KHR_materials_anisotropy
+* [x] KHR_materials_clearcoat
 * [ ] KHR_materials_dispersion
 * [x] KHR_materials_emissive_strength
 * [x] KHR_materials_ior
-* [ ] KHR_materials_iridescence
-* [ ] KHR_materials_sheen
+* [x] KHR_materials_iridescence
+* [x] KHR_materials_sheen
 * [x] KHR_materials_specular
 * [x] KHR_materials_transmission
-* [ ] KHR_materials_unlit
+* [x] KHR_materials_unlit
 * [x] KHR_materials_variants
 * [x] KHR_materials_volume
 * [ ] KHR_mesh_quantization

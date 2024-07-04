@@ -21,6 +21,7 @@
 #include "imgui/imgui_helper.h"
 
 #include "settings.hpp"
+#include <glm/gtc/type_ptr.hpp>
 
 //-----------------------------------------------------------------------------
 // Rendering the UI for the settings
@@ -34,6 +35,9 @@ void gltfr::Settings::onUI()
     PE::SliderInt("Max Frames", &maxFrames, 1, 1000000);
     PE::Checkbox("Show Axis", &showAxis);
     PE::SliderFloat("Max Luminance", &maxLuminance, 0.0f, 10000.0f);
+    ImVec4 c = ImVec4(silhouetteColor.x, silhouetteColor.y, silhouetteColor.z, 1.0f);
+    PE::ColorEdit3("Silhouette Color", glm::value_ptr(silhouetteColor),
+                   ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_Float);
     PE::end();
   }
 }

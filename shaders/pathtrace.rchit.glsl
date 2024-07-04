@@ -41,7 +41,7 @@ layout(set = 1, binding = eSceneDesc) readonly buffer SceneDesc_ { SceneDescript
 // clang-format on
 
 
-#include "nvvkhl/shaders/func.glsl"
+#include "nvvkhl/shaders/func.h"
 #include "get_hit.h"
 
 

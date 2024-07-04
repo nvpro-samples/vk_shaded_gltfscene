@@ -34,6 +34,7 @@
 #include "nvvk/raypicker_vk.hpp"
 #include "nvvkhl/element_benchmark_parameters.hpp"
 #include "nvvkhl/element_camera.hpp"
+#include "nvvkhl/element_dbgprintf.hpp"
 #include "nvvkhl/element_gui.hpp"
 #include "nvvkhl/element_logger.hpp"
 #include "nvvkhl/element_nvml.hpp"
@@ -46,8 +47,8 @@
 #include "resources.h"
 #include "scene.hpp"
 #include "settings.hpp"
-#include "nvvkhl/element_dbgprintf.hpp"
-
+#include "settings_handler.hpp"
+#include "utilities.hpp"
 
 std::shared_ptr<nvvkhl::ElementCamera>              g_elemCamera;       // The camera element (UI and movement)
 std::shared_ptr<nvvkhl::ElementProfiler>            g_profiler;         // GPU profiler
@@ -103,7 +104,8 @@ public:
     {
       // Wait for the HDR to be loaded
       m_scene.load(m_resources, g_inHdr);
-      m_settings.envSystem = Settings::eHdr;
+      m_settings.envSystem    = Settings::eHdr;
+      m_settings.maxLuminance = m_scene.m_hdrEnv->getIntegral();
     }
     if(!g_inFilename.empty())
     {
@@ -247,13 +249,27 @@ public:
   // Adding menu items for loading, saving, and changing the view
   void onUIMenu() override
   {
+    auto getSaveImage = [&]() {
+      std::string filename =
+          NVPSystem::windowSaveFileDialog(m_app->getWindowHandle(), "Save Image", "PNG(.png),JPG(.jpg)|*.png;*.jpg");
+      if(!filename.empty())
+      {
+        std::filesystem::path ext = std::filesystem::path(filename).extension();
+      }
+      return filename;
+    };
+
     windowTitle();
-    bool loadFile = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O);
-    bool saveFile = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S);
+    bool loadFile       = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O);
+    bool saveFile       = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S);
+    bool saveScreenFile = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiMod_Alt | ImGuiKey_S);
+    bool saveImageFile  = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S);
     if(ImGui::BeginMenu("File"))
     {
       loadFile |= ImGui::MenuItem("Load", "Ctrl+O");
       saveFile |= ImGui::MenuItem("Save As", "Ctrl+S");
+      saveScreenFile |= ImGui::MenuItem("Save Screen", "Ctrl+Alt+Shift+S");
+      saveImageFile |= ImGui::MenuItem("Save Image", "CtrlShift+S");
       ImGui::Separator();
       ImGui::EndMenu();
     }
@@ -287,6 +303,24 @@ public:
       m_scene.save(NVPSystem::windowSaveFileDialog(m_app->getWindowHandle(), "Save glTF", "glTF(.gltf)|*.gltf"));
     }
 
+    if(saveScreenFile)
+    {
+      std::string filename = getSaveImage();
+      if(!filename.empty())
+      {
+        m_app->screenShot(filename, 100);
+      }
+    }
+
+    if(saveImageFile)
+    {
+      std::string filename = getSaveImage();
+      if(!filename.empty())
+      {
+        saveRenderedImage(filename);
+      }
+    }
+
     if(fitScene)
     {
       m_scene.fitSceneToView();
@@ -300,6 +334,27 @@ public:
     {
       createRenderers();
     }
+  }
+
+  void saveRenderedImage(const std::string& filename)
+  {
+    VkDevice         device         = m_app->getDevice();
+    VkPhysicalDevice physicalDevice = m_app->getPhysicalDevice();
+    VkImage          srcImage       = m_resources.m_finalImage->getColorImage();
+    VkExtent2D       size           = m_resources.m_finalImage->getSize();
+    VkImage          dstImage       = {};
+    VkDeviceMemory   dstImageMemory = {};
+
+    VkCommandBuffer cmd = m_app->createTempCmdBuffer();
+    imageToRgba8Linear(cmd, device, physicalDevice, srcImage, size, dstImage, dstImageMemory);
+    m_app->submitAndWaitTempCmdBuffer(cmd);
+
+    saveImageToFile(device, dstImage, dstImageMemory, size, filename);
+
+    // Clean up resources
+    vkUnmapMemory(device, dstImageMemory);
+    vkFreeMemory(device, dstImageMemory, nullptr);
+    vkDestroyImage(device, dstImage, nullptr);
   }
 
   //--------------------------------------------------------------------------------------------------
@@ -323,7 +378,8 @@ public:
     std::filesystem::path ext = std::filesystem::path(filename).extension();
     if(ext == ".hdr")
     {
-      m_settings.envSystem = Settings::eHdr;
+      m_settings.envSystem    = Settings::eHdr;
+      m_settings.maxLuminance = m_scene.m_hdrEnv->getIntegral();
     }
   }
 
@@ -483,33 +539,12 @@ private:
   // This goes in the .ini file and remember the settings of the application
   void addSettingsHandler()
   {
-    // Persisting the window
-    ImGuiSettingsHandler ini_handler{};
-    ini_handler.TypeName   = "GltfRenderer";
-    ini_handler.TypeHash   = ImHashStr("GltfRenderer");
-    ini_handler.ClearAllFn = [](ImGuiContext* ctx, ImGuiSettingsHandler*) {};
-    ini_handler.ApplyAllFn = [](ImGuiContext* ctx, ImGuiSettingsHandler*) {};
-    ini_handler.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char* name) -> void* { return (void*)1; };
-    ini_handler.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void* entry, const char* line) {
-      GltfRendererElement* s = (GltfRendererElement*)handler->UserData;
-      int                  x;
-      if(sscanf(line, "Renderer=%d", &x) == 1)
-      {
-        s->m_settings.renderSystem = Settings::RenderSystem(x);
-      }
-      //else if(sscanf(line, "Level=%d", &x) == 1)
-      //{
-      //  s->m_logger->setLogLevel(x);
-      //}
-    };
-    ini_handler.WriteAllFn = [](ImGuiContext* ctx, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buf) {
-      GltfRendererElement* s = (GltfRendererElement*)handler->UserData;
-      buf->appendf("[%s][State]\n", handler->TypeName);
-      buf->appendf("Renderer=%d\n", s->m_settings.renderSystem);
-      buf->appendf("\n");
-    };
-    ini_handler.UserData = this;
-    ImGui::AddSettingsHandler(&ini_handler);
+    m_settingsHandler = std::make_unique<SettingsHandler>("GLTFRenderer");
+    m_settingsHandler->setSetting("Renderer", reinterpret_cast<int*>(&m_settings.renderSystem));
+    m_settingsHandler->setSetting("MaxFrames", &m_settings.maxFrames);
+    m_settingsHandler->setSetting("ShowAxis", &m_settings.showAxis);
+    m_settingsHandler->setSetting("SilhouetteColor", &m_settings.silhouetteColor);
+    m_settingsHandler->addImGuiHandler();
   }
 
 
@@ -522,6 +557,7 @@ private:
   std::unique_ptr<gltfr::Renderer>               m_renderer{};
   std::unique_ptr<nvvkhl::TonemapperPostProcess> m_tonemapper{};
   std::unique_ptr<nvvk::RayPickerKHR>            m_picker{};
+  std::unique_ptr<SettingsHandler>               m_settingsHandler;
 };
 
 
@@ -533,7 +569,9 @@ private:
 ///
 auto main(int argc, char** argv) -> int
 {
+#ifdef USE_DGBPRINTF
   g_dbgPrintf = std::make_shared<nvvkhl::ElementDbgPrintf>();
+#endif
 
   // Search paths
   g_applicationSearchPaths.push_back(NVPSystem::exePath() + PROJECT_DOWNLOAD_RELDIRECTORY);
@@ -574,7 +612,9 @@ auto main(int argc, char** argv) -> int
 
   // Request for extra Queue for loading in parallel
   vkSetup.addRequestedQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, 1, 1.0F);
-  // vkSetup.instanceCreateInfoExt = g_dbgPrintf->getFeatures();  // Adding the debug printf extension
+#ifdef USE_DGBPRINTF
+  vkSetup.instanceCreateInfoExt = g_dbgPrintf->getFeatures();  // Adding the debug printf extension
+#endif                                                         // USE_DGBPRINTF
 
   nvvk::Context vkContext;
   vkContext.init(vkSetup);
@@ -583,8 +623,8 @@ auto main(int argc, char** argv) -> int
 
   // Setup the application information
   nvvkhl::ApplicationCreateInfo spec;
-  spec.name  = PROJECT_NAME " Sample";
-  spec.vSync = false;
+  spec.name           = PROJECT_NAME " Sample";
+  spec.vSync          = false;
   spec.instance       = vkContext.m_instance;
   spec.device         = vkContext.m_device;
   spec.physicalDevice = vkContext.m_physicalDevice;
@@ -608,7 +648,9 @@ auto main(int argc, char** argv) -> int
   app->addElement(gltfRenderer);       // Rendering the glTF scene
   app->addElement(g_elemCamera);       // Controlling the camera movement
   app->addElement(g_profiler);         // GPU Profiler
-  // app->addElement(g_dbgPrintf);                                                     // Debug printf
+#ifdef USE_DGBPRINTF
+  app->addElement(g_dbgPrintf);                                                     // Debug printf
+#endif                                                                              // USE_DGBPRINTF
   app->addElement(std::make_unique<nvvkhl::ElementLogger>(g_logger.get(), false));  // Add logger window
   app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));                    // Add logger window
   app->addElement(std::make_shared<nvvkhl::ElementDefaultMenu>());                  // Menu / Quit

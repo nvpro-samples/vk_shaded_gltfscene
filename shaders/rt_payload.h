@@ -3,9 +3,9 @@
 #include "nvvkhl/shaders/dh_scn_desc.h"
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/bsdf_functions.h"
-#include "nvvkhl/shaders/random.glsl"
-#include "nvvkhl/shaders/ray_util.glsl"
-#include "nvvkhl/shaders/light_contrib.glsl"
+#include "nvvkhl/shaders/random.h"
+#include "nvvkhl/shaders/ray_util.h"
+#include "nvvkhl/shaders/light_contrib.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
 
 // clang-format off

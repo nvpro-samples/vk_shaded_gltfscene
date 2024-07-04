@@ -9,14 +9,20 @@ using vec4  = glm::vec4;
 using vec3  = glm::vec3;
 using vec2  = glm::vec2;
 using Light = nvvkhl_shaders::Light;
+#else 
+bool useDebug = false;
 #endif  // __cplusplus
+
 
 const int eDbgMethod_none      = 0;
 const int eDbgMethod_metallic  = 1;
 const int eDbgMethod_roughness = 2;
 const int eDbgMethod_normal    = 3;
-const int eDbgMethod_basecolor = 4;
-const int eDbgMethod_emissive  = 5;
+const int eDbgMethod_tangent   = 4;
+const int eDbgMethod_bitangent = 5;
+const int eDbgMethod_basecolor = 6;
+const int eDbgMethod_emissive  = 7;
+const int eDbgMethod_opacity   = 8;
 
 
 struct PushConstantPathtracer
@@ -27,6 +33,8 @@ struct PushConstantPathtracer
   float maxLuminance;
   int   dbgMethod;
   int   selectedRenderNode;
+  float focalDistance;
+  float aperture;
   vec2  mouseCoord;  // Debugging (printf) mouse coordinates
 };
 

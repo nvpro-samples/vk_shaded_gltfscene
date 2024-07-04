@@ -22,7 +22,7 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "payload.h"
-#include "nvvkhl/shaders/constants.glsl"
+#include "nvvkhl/shaders/constants.h"
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 
