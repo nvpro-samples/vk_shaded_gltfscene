@@ -41,7 +41,8 @@ void gltfr::Scene::init(Resources& res)
   nvvk::ResourceAllocator* alloc = res.m_allocator.get();
 
   createHdr(res, "");  // Initialize the environment with nothing (constant white: for now)
-  m_sky = std::make_unique<nvvkhl::SkyDome>(res.ctx.device, alloc);  // Sun&Sky
+  m_sky = std::make_unique<nvvkhl::PhysicalSkyDome>();  // Sun&Sky
+  m_sky->setup(res.ctx.device, alloc);
 
   // Create the buffer of the current frame, changing at each frame
   {
@@ -99,8 +100,6 @@ void gltfr::Scene::fitObjectToView() const
 // - tells the scene graph to select the node
 void gltfr::Scene::selectRenderNode(int renderNodeIndex)
 {
-  if(m_selectedRenderNode != -1)
-    resetFrameCount();
   m_selectedRenderNode = renderNodeIndex;
   if(m_sceneGraph && m_gltfScene && renderNodeIndex > -1)
   {
@@ -366,7 +365,7 @@ bool gltfr::Scene::processFrame(VkCommandBuffer cmdBuf, Settings& settings)
                        nullptr, 1, &bufferBarrier, 0, nullptr);
 
   // Update the sky
-  m_sky->skyParams().directionUp = CameraManip.getUp();
+  m_sky->skyParams().yIsUp = CameraManip.getUp().y > CameraManip.getUp().z;
   m_sky->updateParameterBuffer(cmdBuf);
 
   return true;
@@ -562,7 +561,7 @@ bool gltfr::Scene::onUI(Resources& resources, Settings& settings, GLFWwindow* wi
     // When switching the environment, reset Firefly max luminance
     if(cache_env_system != settings.envSystem)
     {
-      settings.maxLuminance = settings.envSystem == Settings::eSky ? 100.f : m_hdrEnv->getIntegral();
+      settings.maxLuminance = settings.envSystem == Settings::eSky ? 10.f : m_hdrEnv->getIntegral();
     }
 
     PE::begin();

@@ -107,31 +107,32 @@ bool traceShadow(Ray ray, float maxDist, inout uint seed)
 // Shoot a ray and store 1 if the ray hits the selected object
 void selectObject(vec2 samplePos, vec2 imageSize)
 {
+  if(pc.selectedRenderNode <= -1)
+    return;
+
   float g_selectedObject = 0.0;
-  if(pc.selectedRenderNode > -1)
+
+  Ray ray            = getRay(samplePos, vec2(0, 0), imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
+  hitPayload.rnodeID = -1;
+  uint rayFlags      = gl_RayFlagsOpaqueEXT;
   {
-    Ray ray            = getRay(samplePos, vec2(0, 0), imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
-    hitPayload.rnodeID = -1;
-    uint rayFlags      = gl_RayFlagsOpaqueEXT;
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, topLevelAS, rayFlags, 0xFF, ray.origin, 0.0, ray.direction, INFINITE);
+    while(rayQueryProceedEXT(rayQuery))
     {
-      rayQueryEXT rayQuery;
-      rayQueryInitializeEXT(rayQuery, topLevelAS, rayFlags, 0xFF, ray.origin, 0.0, ray.direction, INFINITE);
-      while(rayQueryProceedEXT(rayQuery))
+      if(rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
       {
-        if(rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-        {
-          rayQueryConfirmIntersectionEXT(rayQuery);
-        }
-      }
-      if(rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
-      {
-        hitPayload.rnodeID = rayQueryGetIntersectionInstanceIdEXT(rayQuery, true);
+        rayQueryConfirmIntersectionEXT(rayQuery);
       }
     }
-
-    if(hitPayload.rnodeID != -1 && hitPayload.rnodeID == pc.selectedRenderNode)
-      g_selectedObject = 1.0f;
+    if(rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+    {
+      hitPayload.rnodeID = rayQueryGetIntersectionInstanceIdEXT(rayQuery, true);
+    }
   }
+
+  if(hitPayload.rnodeID != -1 && hitPayload.rnodeID == pc.selectedRenderNode)
+    g_selectedObject = 1.0f;
 
   imageStore(selectImage, ivec2(samplePos.xy), vec4(g_selectedObject, 0, 0, 1));
 }

@@ -52,6 +52,14 @@ struct PushConstantSilhouette
   vec3 color;
 };
 
+struct PushConstantDenoiser
+{
+  int   stepWidth;
+  float colorPhi;
+  float normalPhi;
+  float depthPhi;
+};
+
 #define MAX_NB_LIGHTS 1
 #define WORKGROUP_SIZE 16
 

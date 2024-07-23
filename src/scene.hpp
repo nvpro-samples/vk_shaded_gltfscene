@@ -107,7 +107,7 @@ public:
   std::unique_ptr<nvvkhl::SceneVk>              m_gltfSceneVk{};   // The Vulkan scene
   std::unique_ptr<nvvkhl::HdrEnv>               m_hdrEnv{};        // The HDR environment
   std::unique_ptr<nvvkhl::HdrEnvDome>           m_hdrDome{};       // The HDR environment dome (raster)
-  std::unique_ptr<nvvkhl::SkyDome>              m_sky{};           // The sky dome
+  std::unique_ptr<nvvkhl::PhysicalSkyDome>      m_sky{};           // The sky dome
   std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet{};      // The descriptor set for the scene
 
   DH::SceneFrameInfo m_sceneFrameInfo{};      // Used to pass the scene information to the shaders

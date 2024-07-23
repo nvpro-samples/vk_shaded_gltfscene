@@ -67,7 +67,8 @@ private:
 
   static void vec2FromString(const std::string& str, glm::vec2& value)
   {
-    sscanf(str.c_str(), "%f,%f", &value.x, &value.y);
+    int ret = sscanf(str.c_str(), "%f,%f", &value.x, &value.y);
+    assert(ret == 2 && "Failed to parse vec2");
   }
 
   static std::string vec3ToString(const glm::vec3& value)
@@ -77,7 +78,8 @@ private:
 
   static void vec3FromString(const std::string& str, glm::vec3& value)
   {
-    sscanf(str.c_str(), "%f,%f,%f", &value.x, &value.y, &value.z);
+    int ret = sscanf(str.c_str(), "%f,%f,%f", &value.x, &value.y, &value.z);
+    assert(ret == 3 && "Failed to parse vec3");
   }
 
   static std::string boolToString(const bool& value) { return value ? "true" : "false"; }
@@ -137,6 +139,8 @@ public:
     ini_handler.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
       SettingsHandler* s = static_cast<SettingsHandler*>(handler->UserData);
       char             key[64], value[256];
+      key[63]    = 0;  // zero terminate, protection
+      value[255] = 0;  // zero terminate, protection
       if(sscanf(line, "%63[^=]=%255[^\n]", key, value) == 2)
       {
         auto it = s->settings.find(key);

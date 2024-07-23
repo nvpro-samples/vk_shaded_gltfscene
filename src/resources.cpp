@@ -45,10 +45,13 @@ void gltfr::Resources::init(VulkanInfo& _ctx)
   m_tempCommandPool = std::make_unique<nvvk::CommandPool>(ctx.device, ctx.GCT0.familyIndex,
                                                           VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, ctx.GCT0.queue);
 
-  // ShaderC compilation
-  m_glslC = std::make_unique<nvvkhl::GlslCompiler>();
+  // Shader compilers
+  m_glslC  = std::make_unique<nvvkhl::GlslCompiler>();
+  m_slangC = std::make_unique<SlangCompiler>();
   for(const auto& path : g_applicationSearchPaths)
+  {
     m_glslC->addInclude(path);
+  }
 
 
   resizeGbuffers({128, 128});
@@ -122,4 +125,28 @@ VkShaderModule gltfr::Resources::createShaderModule(shaderc::SpvCompilationResul
 {
   // nvh::ScopedTimer st(__FUNCTION__);
   return m_glslC->createModule(ctx.device, compResult);
+}
+
+//------------------------------------------------------------------
+// Create the structure to pass to vkCreateShaderModule if
+// the compilation was successful
+//
+bool gltfr::Resources::createShaderModuleCreateInfo(shaderc::SpvCompilationResult& compResult, VkShaderModuleCreateInfo& createInfo)
+{
+  if(compResult.GetNumErrors() > 0)
+  {
+    LOGE("Error in compiling the shader: %s", compResult.GetErrorMessage().c_str());
+    return false;
+  }
+  createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  createInfo.codeSize = (compResult.end() - compResult.begin()) * sizeof(uint32_t);
+  createInfo.pCode    = reinterpret_cast<const uint32_t*>(compResult.begin());
+
+  return true;
+}
+
+// This is needed when shader file have changed
+void gltfr::Resources::resetSlangCompiler()
+{
+  m_slangC->newSession();
 }

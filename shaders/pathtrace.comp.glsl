@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #version 460
@@ -85,20 +85,23 @@ void main()
   float aperture      = pc.aperture;
 
   // Sampling n times the pixel
-  vec3 pixel_color = samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI,
-                                 frameInfo.viewMatrixI, focalDistance, aperture);
+
+  SampleResult sampleResult = samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI,
+                                          frameInfo.viewMatrixI, focalDistance, aperture);
+  vec3         pixel_color  = sampleResult.radiance;
   for(int s = 1; s < pc.maxSamples; s++)
   {
     subpixelJitter = vec2(rand(seed), rand(seed));
-    pixel_color += samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI,
+    sampleResult = samplePixel(seed, samplePos, subpixelJitter, imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI,
                                focalDistance, aperture);
+    pixel_color += sampleResult.radiance;
   }
   pixel_color /= pc.maxSamples;
 
   if(pc.frame == 0)  // first frame
   {
     imageStore(image, ivec2(samplePos.xy), vec4(pixel_color, 1.0F));
-    selectObject(samplePos, imageSize);
+    imageStore(normalDepth, ivec2(samplePos.xy), vec4(sampleResult.normal, sampleResult.depth));
   }
   else
   {
@@ -106,5 +109,16 @@ void main()
     float a         = 1.0F / float(pc.frame + 1);
     vec3  old_color = imageLoad(image, ivec2(samplePos.xy)).xyz;
     imageStore(image, ivec2(samplePos.xy), vec4(mix(old_color, pixel_color, a), 1.0F));
+
+    // Normal Depth buffer update
+    vec4  oldNormalDepth = imageLoad(normalDepth, ivec2(samplePos.xy));
+    float new_depth      = min(oldNormalDepth.w, sampleResult.depth);
+    vec3  new_normal     = normalize(mix(oldNormalDepth.xyz, sampleResult.normal, a));
+
+    // Write to the normalDepth buffer
+    imageStore(normalDepth, ivec2(samplePos.xy), vec4(new_normal, new_depth));
   }
+
+  // Adding to the selection buffer the selected object id
+  selectObject(samplePos, imageSize);
 }

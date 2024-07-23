@@ -27,18 +27,20 @@ namespace DH {
 
 
 #include "imgui.h"
+
 #include "nvh/cameramanipulator.hpp"
+#include "nvh/timesampler.hpp"
 #include "nvvk/debug_util_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
 #include "nvvk/dynamicrendering_vk.hpp"
 #include "nvvk/error_vk.hpp"
-#include "nvvk/sbtwrapper_vk.hpp"
-#include "nvvkhl/shaders/dh_tonemap.h"
-#include "renderer.hpp"
-#include "shaders/dh_bindings.h"
 #include "nvvk/pipeline_vk.hpp"
 #include "nvvk/renderpasses_vk.hpp"
-#include "nvh/timesampler.hpp"
+#include "nvvk/sbtwrapper_vk.hpp"
+#include "nvvkhl/shaders/dh_tonemap.h"
+#include "shaders/dh_bindings.h"
+
+#include "renderer.hpp"
 #include "silhouette.hpp"
 
 
@@ -243,7 +245,7 @@ void RendererRaster::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& scen
     const VkExtent2D img_size = m_gSuperSampleBuffers->getSize();
     if(settings.envSystem == Settings::eSky)
     {
-      scene.m_sky->skyParams().directionUp = CameraManip.getUp();
+      scene.m_sky->skyParams().yIsUp = CameraManip.getUp().y > CameraManip.getUp().z;
       scene.m_sky->updateParameterBuffer(cmd);
 
       auto skysec = profiler.timeRecurring("Sky", cmd);
@@ -325,24 +327,26 @@ void RendererRaster::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& scen
     // Silhouette: rendering the selected node in the second color attachment
     if(m_silhouette->isValid())
     {
+      m_silhouette->setDescriptor(SilhoutteImages::eObjectID, m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSilhouette));
+      m_silhouette->setDescriptor(SilhoutteImages::eRGBAIImage,
+                                  m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSuperSample));
       m_silhouette->setColor(nvvkhl_shaders::toLinear(settings.silhouetteColor));
-      m_silhouette->render(cmd, m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSilhouette),
-                           m_gSuperSampleBuffers->getDescriptorImageInfo(GBufferType::eSuperSample),
-                           m_gSuperSampleBuffers->getSize());
+      m_silhouette->dispatch2D(cmd, m_gSuperSampleBuffers->getSize());
     }
   }
 
   {
     // Blit the super-sampled G-Buffer to the simple G-Buffer
-    VkImageBlit blitRegions{};
-    blitRegions.srcOffsets[0] = {0, 0, 0};
-    blitRegions.srcOffsets[1] = {int(m_gSuperSampleBuffers->getSize().width), int(m_gSuperSampleBuffers->getSize().height), 1};
-    blitRegions.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blitRegions.srcSubresource.layerCount = 1;
-    blitRegions.dstOffsets[0]             = {0, 0, 0};
-    blitRegions.dstOffsets[1] = {int(m_gSimpleBuffers->getSize().width), int(m_gSimpleBuffers->getSize().height), 1};
-    blitRegions.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blitRegions.dstSubresource.layerCount = 1;
+    VkOffset3D minCorner = {0, 0, 0};
+    VkOffset3D maxSSCorner = {int(m_gSuperSampleBuffers->getSize().width), int(m_gSuperSampleBuffers->getSize().height), 1};
+    VkOffset3D  maxCorner = {int(m_gSimpleBuffers->getSize().width), int(m_gSimpleBuffers->getSize().height), 1};
+    VkImageBlit blitRegions{
+        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+        .srcOffsets     = {minCorner, maxSSCorner},
+        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+        .dstOffsets     = {minCorner, maxCorner},
+    };
+
     vkCmdBlitImage(cmd, m_gSuperSampleBuffers->getColorImage(), VK_IMAGE_LAYOUT_GENERAL,
                    m_gSimpleBuffers->getColorImage(), VK_IMAGE_LAYOUT_GENERAL, 1, &blitRegions, VK_FILTER_LINEAR);
   }

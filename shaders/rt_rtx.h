@@ -38,17 +38,18 @@ bool traceShadow(Ray r, float maxDist, inout uint seed)
 // Shoot a ray and store 1 if the ray hits the selected object
 void selectObject(vec2 samplePos, vec2 imageSize)
 {
-  float g_selectedObject = 0.0;
-  if(pc.selectedRenderNode > -1)
-  {
-    Ray r              = getRay(samplePos, vec2(0, 0), imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
-    hitPayload.rnodeID = -1;
-    uint rayFlags      = gl_RayFlagsOpaqueEXT;
-    traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, r.origin, EPSILON, r.direction, INFINITE, 0);
+  if(pc.selectedRenderNode <= -1)
+    return;
 
-    if(hitPayload.rnodeID != -1 && hitPayload.rnodeID == pc.selectedRenderNode)
-      g_selectedObject = 1.0f;
-  }
+  float g_selectedObject = 0.0;
+
+  Ray r              = getRay(samplePos, vec2(0, 0), imageSize, frameInfo.projMatrixI, frameInfo.viewMatrixI);
+  hitPayload.rnodeID = -1;
+  uint rayFlags      = gl_RayFlagsOpaqueEXT;
+  traceRayEXT(topLevelAS, rayFlags, 0xFF, 0, 0, 0, r.origin, EPSILON, r.direction, INFINITE, 0);
+
+  if(hitPayload.rnodeID != -1 && hitPayload.rnodeID == pc.selectedRenderNode)
+    g_selectedObject = 1.0f;
 
   imageStore(selectImage, ivec2(samplePos.xy), vec4(g_selectedObject, 0, 0, 1));
 }

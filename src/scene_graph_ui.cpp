@@ -40,7 +40,7 @@ void GltfModelUI::render()
     {
       auto& scene = m_model.scenes[sceneID];
       ImGui::SetNextItemOpen(true);  // Scene is always open
-      if(ImGui::TreeNode("Scene", "%s (Scene %d)", scene.name.c_str(), sceneID))
+      if(ImGui::TreeNode("Scene", "%s (Scene %ld)", scene.name.c_str(), sceneID))
       {
         for(int node : scene.nodes)
         {

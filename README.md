@@ -7,6 +7,37 @@
 
 This sample loads [glTF](https://www.khronos.org/gltf/) (.gltf/.glb) scenes and will ray trace or rasterize it using glTF 2.0 material and textures. It can display an HDR image in the background and be lit by that HDR or use a built-in Sun&Sky. It renders in multiple passes, background, scene, and then tone maps the result. It shows how multiple resources (geometry, materials and textures) can be shared between the two rendering systems. 
 
+## Build
+
+-  This project uses [Vulkan](https://www.khronos.org/vulkan/) and requires the [latest SDK](https://vulkan.lunarg.com/sdk/home) to be installed. 				
+-  This project also uses the Nvpro-Core framework. It is not included as a submodule, therefore you need to clone it separately. 
+
+1. Clone the repositories
+```bash
+git clone https://github.com/nvpro-samples/nvpro_core.git
+git clone https://github.com/nvpro-samples/vk_gltf_renderer.git
+```
+
+2. Build the project
+```bash
+cd vk_gltf_renderer
+mkdir build
+cd build
+cmake ..
+cmake --build . --config release
+```
+
+3. Run the application
+```bash
+.\bin_x64\Release\vk_gltf_renderer.exe
+```
+
+4. Install [optional] : if you want to package the application
+``` bash
+cmake --install .
+```
+
+
 ## Pathtracer
 
 Implements a path tracer with global illumination. 

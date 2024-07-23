@@ -22,7 +22,8 @@ END_BINDING();
 START_BINDING(RtxBindings)
 eTlas = 0,
 eOutImage = 1,
-eSelect = 2
+eNormalDepth = 2,
+eSelect = 3
 END_BINDING();
 
 START_BINDING(DeferredBindings)

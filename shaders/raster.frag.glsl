@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -60,7 +60,7 @@ layout(set = 1, binding = 0) uniform sampler2D   u_GGXLUT; // lookup table
 layout(set = 1, binding = 1) uniform samplerCube u_LambertianEnvSampler; // 
 layout(set = 1, binding = 2) uniform samplerCube u_GGXEnvSampler;  //
 
-layout(set = 2, binding = eSkyParam) uniform SkyInfo_ { ProceduralSkyShaderParameters skyInfo; };
+layout(set = 2, binding = eSkyParam) uniform SkyInfo_ { PhysicalSkyParameters skyInfo; };
 
 // clang-format on
 
@@ -205,9 +205,8 @@ void main()
   float ambientFactor = 0.3;
   if(frameInfo.useSky != 0)
   {
-    vec3 ambientColor = mix(skyInfo.groundColor.rgb, skyInfo.skyColor.rgb, pbrMat.N.y * 0.5 + 0.5) * ambientFactor;
-    contribution += ambientColor * pbrMat.baseColor;
-    contribution += ambientColor;  // *pbrMat.f0;
+    vec3 ambientColor = mix(vec3(0.4F), vec3(0.17F, 0.37F, 0.65F), pbrMat.N.y * 0.5 + 0.5) * ambientFactor;
+    contribution += ambientColor * pbrMat.baseColor * f0;
   }
   else
   {

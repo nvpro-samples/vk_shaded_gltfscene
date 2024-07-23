@@ -9,6 +9,11 @@ Message(STATUS "Processing Project ${PROJNAME}:")
 # Include CPM.cmake
 include(cmake/CPM.cmake)
 
+# Adding Slang
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(Slang_VERSION  "2024.1.30")
+find_package(Slang)
+
 # Add RapidJSON package
 CPMAddPackage(
     NAME RapidJSON
@@ -44,6 +49,8 @@ _add_project_definitions(${PROJNAME})
 
 set(NVPRO_CORE_DIR ${BASE_DIRECTORY}/nvpro_core)
 
+# Adding SLANG compiler function
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/slang.cmake)
 
 #####################################################################################
 # additions from packages needed for this sample
@@ -66,7 +73,8 @@ _add_nvpro_core_lib()
 file(GLOB SOURCE_FILES src/*.*)
 file(GLOB SHADER_SOURCE shaders/*.glsl)
 file(GLOB SHADER_HEADER shaders/*.h)
-file(GLOB SHADER_FILES shaders/*.glsl shaders/*.h)
+file(GLOB SHADER_SLANG shaders/*.slang)
+file(GLOB SHADER_FILES shaders/*.glsl shaders/*.h shaders/*.slang)
 file(GLOB SHADER_COMMON_FILES ${NVPRO_CORE_DIR}/nvvkhl/shaders/*.*)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -101,7 +109,7 @@ source_group(common FILES
   ${COMMON_SOURCE_FILES}
   ${PACKAGE_SOURCE_FILES}
 )
-source_group("Shader Files" FILES ${SHADER_FILES})
+source_group("Shader Files" FILES ${SHADER_FILES} ${SHADER_SLANG})
 source_group("Shader Files/common" FILES ${SHADER_COMMON_FILES})
 # source_group("Source Files" FILES ${SOURCE_FILES})
 
@@ -116,14 +124,14 @@ endif()
 # Linkage
 #
 
-target_link_libraries(${PROJNAME} ${PLATFORM_LIBRARIES} nvpro_core)
+target_link_libraries(${PROJNAME} PRIVATE ${PLATFORM_LIBRARIES} nvpro_core)
 
 foreach(DEBUGLIB ${LIBRARIES_DEBUG})
-  target_link_libraries(${PROJNAME} debug ${DEBUGLIB})
+  target_link_libraries(${PROJNAME} PRIVATE debug ${DEBUGLIB})
 endforeach(DEBUGLIB)
 
 foreach(RELEASELIB ${LIBRARIES_OPTIMIZED})
-  target_link_libraries(${PROJNAME} optimized ${RELEASELIB})
+  target_link_libraries(${PROJNAME} PRIVATE optimized ${RELEASELIB})
 endforeach(RELEASELIB)
 
 # Resources
@@ -136,15 +144,15 @@ download_files(FILENAMES daytime.hdr std_env.hdr)
 # - Shaders are compiled to Spir-V but not embedded in the binary
 # - This allow to check for errors before running the application
 #
- # GLSL compilation flags
- set(_GLSL_FLAGS 
+# GLSL compilation flags
+set(_GLSL_FLAGS 
    -Ishaders 
    -I${NVPRO_CORE_DIR} 
    -g # Debugging information
    -D_glsl)
  
- # Compiling shaders to Spir-V header
- compile_glsl(
+# Compiling shaders to Spir-V header
+compile_glsl(
      SOURCE_FILES ${SHADER_SOURCE}
      HEADER_FILES ${SHADER_HEADER}
      DST "${CMAKE_CURRENT_SOURCE_DIR}/_autogen" 
@@ -154,7 +162,23 @@ download_files(FILENAMES daytime.hdr std_env.hdr)
      FLAGS ${_GLSL_FLAGS}
      )
 
- target_sources(${PROJNAME} PRIVATE ${GLSL_SOURCES} ${GLSL_HEADERS})
+target_sources(${PROJNAME} PRIVATE ${GLSL_SOURCES} ${GLSL_HEADERS})
+
+####################################################################################################
+# Slang Shader compilation
+# - Shaders are compiled to Spir-V but not embedded in the binary
+target_sources(${PROJNAME} PRIVATE ${SHADER_SLANG})
+target_include_directories(${PROJNAME} PRIVATE "${Slang_SDK}/include")
+target_link_libraries(${PROJNAME} PRIVATE ${Slang_LIBRARY})
+foreach(SLANG_FILE ${SHADER_SLANG})
+    compile_slang_file(
+        SOURCE_FILE ${SLANG_FILE}
+        DST "${CMAKE_CURRENT_SOURCE_DIR}/_autogen"
+        FLAGS -I${NVPRO_CORE_DIR}
+        )
+    # target_sources(${PROJNAME} PRIVATE ${SLANG_FILE})
+endforeach()
+
 
 #####################################################################################
 # copies binaries that need to be put next to the exe files (ZLib, etc.)
@@ -165,3 +189,9 @@ install(FILES ${SHADER_FILES} CONFIGURATIONS Release DESTINATION "bin_${ARCH}/GL
 install(FILES ${SHADER_FILES} CONFIGURATIONS Debug DESTINATION "bin_${ARCH}_debug/GLSL_${PROJNAME}")
 install(FILES ${SHADER_COMMON_FILES} CONFIGURATIONS Release DESTINATION "bin_${ARCH}/GLSL_${PROJNAME}/nvvkhl/shaders")
 install(FILES ${SHADER_COMMON_FILES} CONFIGURATIONS Debug DESTINATION "bin_${ARCH}_debug/GLSL_${PROJNAME}/nvvkhl/shaders")
+
+# Copying Slang DLLs
+add_custom_command(TARGET ${PROJNAME} POST_BUILD 
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${Slang_DLL} ${Slang_glslang_DLL} $<TARGET_FILE_DIR:${PROJNAME}> VERBATIM
+    )
+install(FILES ${Slang_DLL} ${Slang_glslang_DLL} DESTINATION bin_${ARCH}$<IF:$<CONFIG:Debug>,_debug,>)

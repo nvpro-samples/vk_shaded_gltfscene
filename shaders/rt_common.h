@@ -1,8 +1,17 @@
 
-
+// --------------------------------------------------------------------
 // Forwarded declarations
 void traceRay(Ray r, inout uint seed);
 bool traceShadow(Ray r, float maxDist, inout uint seed);
+
+
+struct SampleResult
+{
+  vec3  radiance;
+  vec3  normal;
+  float depth;
+};
+
 
 // --------------------------------------------------------------------
 // Sampling the Sun or the HDR
@@ -18,14 +27,13 @@ vec3 sampleLights(in vec3 pos, vec3 normal, in vec3 worldRayDirection, inout uin
 
   if(frameInfo.useSky == 1)
   {
-    Light        sunLight     = frameInfo.light[0];
-    vec2         rand_val     = vec2(rand(seed), rand(seed));
-    LightContrib lightContrib = singleLightContribution(sunLight, pos, normal, -worldRayDirection, rand_val);
+    vec2 random_sample = vec2(rand(seed), rand(seed));  // Assume rand() returns a random float in [0, 1]
 
-    radiance   = lightContrib.intensity;
-    dirToLight = normalize(-lightContrib.incidentVector);
-    lightPdf   = DIRAC;
-    // Return radiance over pdf
+    SkySamplingResult skySample = samplePhysicalSky(skyInfo, random_sample);
+    dirToLight                  = skySample.direction;
+    lightPdf                    = skySample.pdf;
+    radiance                    = skySample.radiance / lightPdf;
+
     return radiance;
   }
   else
@@ -57,6 +65,9 @@ float getOpacity(RenderNode renderNode, RenderPrimitive renderPrim, int triangle
   // Scene materials
   uint              matIndex = max(0, renderNode.materialID);
   GltfShadeMaterial mat      = GltfMaterialBuf(sceneDesc.materialAddress).m[matIndex];
+
+  if(mat.alphaMode == ALPHA_OPAQUE)
+    return 1.0;
 
   float baseColorAlpha = mat.pbrBaseColorFactor.a;
   if(mat.pbrBaseColorTexture > -1)
@@ -100,12 +111,16 @@ Ray getRay(vec2 samplePos, vec2 offset, vec2 imageSize, mat4 projMatrixI, mat4 v
 //-----------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------
-vec3 pathTrace(Ray r, inout uint seed)
+SampleResult pathTrace(Ray r, inout uint seed)
 {
   vec3 radiance   = vec3(0.0F);
   vec3 throughput = vec3(1.0F);
   bool isInside   = false;
 
+  SampleResult sampleResult;
+  sampleResult.depth    = 0;
+  sampleResult.normal   = vec3(0, 0, 0);
+  sampleResult.radiance = vec3(0, 0, 0);
 
   GltfMaterialBuf materials = GltfMaterialBuf(sceneDesc.materialAddress);
 
@@ -115,12 +130,13 @@ vec3 pathTrace(Ray r, inout uint seed)
 
     HitState hit = hitPayload.hit;
 
+
     // Hitting the environment, then exit
     if(hitPayload.hitT == INFINITE)
     {
       if(frameInfo.useSky == 1)
       {
-        radiance += proceduralSky(skyInfo, r.direction, 0);
+        radiance += evalPhysicalSky(skyInfo, r.direction);
       }
       else
       {
@@ -132,7 +148,14 @@ vec3 pathTrace(Ray r, inout uint seed)
       }
 
       radiance *= throughput;
-      return radiance;
+      sampleResult.radiance = radiance;
+      return sampleResult;
+    }
+
+    if(depth == 0)
+    {
+      sampleResult.normal = hit.nrm;
+      sampleResult.depth  = hitPayload.hitT;
     }
 
     // Retrieve the Instance buffer information
@@ -152,7 +175,8 @@ vec3 pathTrace(Ray r, inout uint seed)
     if(material.unlit > 0)
     {
       radiance += pbrMat.baseColor;
-      return radiance;
+      sampleResult.radiance = radiance;
+      return sampleResult;
     }
 
     // Apply volume attenuation
@@ -250,14 +274,15 @@ vec3 pathTrace(Ray r, inout uint seed)
 #endif
   }
 
-  return radiance;
+  sampleResult.radiance = radiance;
+  return sampleResult;
 }
 
 
 //-----------------------------------------------------------------------
 // Sampling the pixel
 //-----------------------------------------------------------------------
-vec3 samplePixel(inout uint seed, vec2 samplePos, vec2 subpixelJitter, vec2 imageSize, mat4 projMatrixI, mat4 viewMatrixI, float focalDist, float aperture)
+SampleResult samplePixel(inout uint seed, vec2 samplePos, vec2 subpixelJitter, vec2 imageSize, mat4 projMatrixI, mat4 viewMatrixI, float focalDist, float aperture)
 {
   Ray ray = getRay(samplePos, subpixelJitter, imageSize, projMatrixI, viewMatrixI);
 
@@ -272,18 +297,18 @@ vec3 samplePixel(inout uint seed, vec2 samplePos, vec2 subpixelJitter, vec2 imag
 
   ray = Ray(ray.origin + randomAperturePos, finalRayDir);
 
-  vec3 radiance = pathTrace(ray, seed);
+  SampleResult sampleResult = pathTrace(ray, seed);
 
 // Removing fireflies
 #if USE_FIREFLY_FILTER
-  float lum = dot(radiance, vec3(0.212671F, 0.715160F, 0.072169F));
+  float lum = dot(sampleResult.radiance, vec3(0.212671F, 0.715160F, 0.072169F));
   if(lum > pc.maxLuminance)
   {
-    radiance *= pc.maxLuminance / lum;
+    sampleResult.radiance *= pc.maxLuminance / lum;
   }
 #endif
 
-  return radiance;
+  return sampleResult;
 }
 
 

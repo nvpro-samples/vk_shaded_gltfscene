@@ -35,7 +35,6 @@ It holds the Vulkan resources, such as
 
 */
 
-
 // nvpro-core
 #include "nvvk/commands_vk.hpp"
 #include "nvvkhl/gbuffer.hpp"
@@ -43,7 +42,7 @@ It holds the Vulkan resources, such as
 
 // Local to application
 #include "alloc_dma.h"
-
+#include "slang_compiler.hpp"
 
 namespace gltfr {
 struct Queue
@@ -76,6 +75,8 @@ public:
   // Shader compilation
   shaderc::SpvCompilationResult compileGlslShader(const std::string& filename, shaderc_shader_kind shaderKind) const;
   VkShaderModule                createShaderModule(shaderc::SpvCompilationResult& compResult) const;
+  static bool createShaderModuleCreateInfo(shaderc::SpvCompilationResult& compResult, VkShaderModuleCreateInfo& createInfo);
+  void resetSlangCompiler();
 
   // Did the resolution changed?
   bool hasGBuffersChanged() const { return m_hasGBufferChanged; }
@@ -88,6 +89,7 @@ public:
   std::unique_ptr<nvvkhl::GBuffer>      m_finalImage{};  // G-Buffers: color
   std::unique_ptr<nvvk::CommandPool>    m_tempCommandPool{};
   std::unique_ptr<nvvkhl::GlslCompiler> m_glslC{};
+  std::unique_ptr<SlangCompiler>        m_slangC{};
 
 private:
   bool m_hasGBufferChanged{false};

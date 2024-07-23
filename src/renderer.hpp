@@ -26,7 +26,6 @@
 */
 
 
-#include "resources.h"
 #include "scene.hpp"
 #include "nvvk/profiler_vk.hpp"
 

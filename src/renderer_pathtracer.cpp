@@ -31,6 +31,7 @@
 #include "nvvk/error_vk.hpp"
 #include "nvvk/sbtwrapper_vk.hpp"
 #include "nvvkhl/shaders/dh_tonemap.h"
+#include "nvvkhl/shaders/dh_comp.h"
 
 // Shared information between device and host
 #include "shaders/dh_bindings.h"
@@ -38,6 +39,8 @@
 // Local to application
 #include "renderer.hpp"
 #include "nvvkhl/element_dbgprintf.hpp"
+
+#include "atrous_denoiser.hpp"
 #include "silhouette.hpp"
 
 extern std::shared_ptr<nvvkhl::ElementDbgPrintf> g_dbgPrintf;
@@ -68,7 +71,10 @@ public:
   void render(VkCommandBuffer cmd, Resources& res, Scene& scene, Settings& settings, nvvk::ProfilerVK& profiler) override;
   bool                  onUI() override;
   void                  handleChange(Resources& res, Scene& scene) override;
-  VkDescriptorImageInfo getOutputImage() const override { return m_gBuffers->getDescriptorImageInfo(0); }
+  VkDescriptorImageInfo getOutputImage() const override
+  {
+    return m_gBuffers->getDescriptorImageInfo(GBufferType::eRgbResult);
+  }
 
 private:
   void createRtxPipeline(Resources& res, Scene& scene);
@@ -89,11 +95,15 @@ private:
   std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers{};      // G-Buffers: RGBA32F
   std::unique_ptr<nvvk::DebugUtil>              m_dutil{};
   std::unique_ptr<Silhouette>                   m_silhouette{};
+  std::unique_ptr<AtrousDenoiser>               m_denoiser{};
 
   enum GBufferType
   {
-    eRGBLinear,
-    eSilhouette
+    eRgbLinear,    // Result from path-tracing
+    eNormalDepth,  // Normal
+    eSilhouette,   // Buffer to store object ID for silhouette
+    eRgbResult,    // Final result
+    eTempResult,   // Temporary result
   };
 
   // Creating all shaders
@@ -127,6 +137,7 @@ bool RendererPathtracer::init(Resources& res, Scene& scene)
   m_device = res.ctx.device;
 
   m_silhouette = std::make_unique<Silhouette>(res);
+  m_denoiser   = std::make_unique<AtrousDenoiser>(res);
 
   // Requesting ray tracing properties
   VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_prop{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
@@ -167,7 +178,7 @@ bool RendererPathtracer::initShaders(Resources& res)
 
     if(s.GetCompilationStatus() != shaderc_compilation_status_success)
     {
-      LOGE("Error when loading shaders: %d\n", i);
+      LOGE("Error when loading shaders: %zu\n", i);
       LOGE("Error %s\n", s.GetErrorMessage().c_str());
       return false;
     }
@@ -188,6 +199,7 @@ void RendererPathtracer::createRtxSet()
   // This descriptor set, holds the top level acceleration structure, the output image and the selection image
   m_rtxSet->addBinding(RtxBindings::eTlas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
   m_rtxSet->addBinding(RtxBindings::eOutImage, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
+  m_rtxSet->addBinding(RtxBindings::eNormalDepth, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
   m_rtxSet->addBinding(RtxBindings::eSelect, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_ALL);
   m_rtxSet->initLayout();
   m_rtxSet->initPool(1);
@@ -215,18 +227,20 @@ void RendererPathtracer::writeRtxSet(Scene& scene)
       .pAccelerationStructures    = &tlas,
   };
 
-  const VkDescriptorImageInfo out_image    = m_gBuffers->getDescriptorImageInfo();
-  const VkDescriptorImageInfo select_image = m_gBuffers->getDescriptorImageInfo(1);
+  const VkDescriptorImageInfo outImage    = m_gBuffers->getDescriptorImageInfo(GBufferType::eRgbLinear);
+  const VkDescriptorImageInfo normalDepth = m_gBuffers->getDescriptorImageInfo(GBufferType::eNormalDepth);
+  const VkDescriptorImageInfo selectImage = m_gBuffers->getDescriptorImageInfo(GBufferType::eSilhouette);  // for selection
 
   std::vector<VkWriteDescriptorSet> writes;
   writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eTlas, &desc_as_info));
-  writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eOutImage, &out_image));
-  writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eSelect, &select_image));
+  writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eOutImage, &outImage));
+  writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eNormalDepth, &normalDepth));
+  writes.emplace_back(m_rtxSet->makeWrite(0, RtxBindings::eSelect, &selectImage));
   vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 //------------------------------------------------------------------------------
-// Deinitialize the renderer
+// De-initialize the renderer
 //
 void RendererPathtracer::deinit()
 {
@@ -247,8 +261,15 @@ void RendererPathtracer::deinit()
 //
 void RendererPathtracer::createGBuffer(Resources& res)
 {
+  static const auto imageFormats = {
+      VK_FORMAT_R32G32B32A32_SFLOAT,  // Result of path tracing
+      VK_FORMAT_R16G16B16A16_SFLOAT,  // Normal / Depth
+      VK_FORMAT_R8_UNORM,             // For selection, silhouette
+      VK_FORMAT_R16G16B16A16_SFLOAT,  // Final result
+      VK_FORMAT_R16G16B16A16_SFLOAT,  // Temp result
+  };
   m_gBuffers->destroy();
-  m_gBuffers->create(res.m_finalImage->getSize(), {VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R8_UNORM}, VK_FORMAT_UNDEFINED);
+  m_gBuffers->create(res.m_finalImage->getSize(), imageFormats, VK_FORMAT_UNDEFINED);
 }
 
 //------------------------------------------------------------------------------
@@ -259,15 +280,24 @@ void RendererPathtracer::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& 
   auto scopeDbg = m_dutil->DBG_SCOPE(cmd);
   auto sec      = profiler.timeRecurring("Raytrace", cmd);
 
+  static int lastSelected = -1;
+
   // Push constant
-  m_pushConst.maxDepth           = g_pathtraceSettings.maxDepth;
-  m_pushConst.maxSamples         = g_pathtraceSettings.maxSamples;
-  m_pushConst.frame              = scene.m_sceneFrameInfo.frameCount;
-  m_pushConst.dbgMethod          = g_pathtraceSettings.dbgMethod;
-  m_pushConst.maxLuminance       = settings.maxLuminance;
-  m_pushConst.selectedRenderNode = scene.getSelectedRenderNode();
-  m_pushConst.focalDistance      = glm::length(CameraManip.getEye() - CameraManip.getCenter());
-  m_pushConst.aperture           = glm::radians(g_pathtraceSettings.aperture);
+  m_pushConst.maxDepth     = g_pathtraceSettings.maxDepth;
+  m_pushConst.maxSamples   = g_pathtraceSettings.maxSamples;
+  m_pushConst.frame        = scene.m_sceneFrameInfo.frameCount;
+  m_pushConst.dbgMethod    = g_pathtraceSettings.dbgMethod;
+  m_pushConst.maxLuminance = settings.maxLuminance;
+  if(lastSelected != scene.getSelectedRenderNode() || m_pushConst.frame <= 0)
+  {
+    lastSelected                   = scene.getSelectedRenderNode();
+    m_pushConst.selectedRenderNode = lastSelected;
+  }
+  else
+    m_pushConst.selectedRenderNode = -1;  // Resetting the selected object, to avoid shooting rays on the same object
+
+  m_pushConst.focalDistance = glm::length(CameraManip.getEye() - CameraManip.getCenter());
+  m_pushConst.aperture      = glm::radians(g_pathtraceSettings.aperture);
   if(g_dbgPrintf)
     m_pushConst.mouseCoord = g_dbgPrintf->getMouseCoord();
 
@@ -296,22 +326,49 @@ void RendererPathtracer::render(VkCommandBuffer cmd, Resources& /*res*/, Scene& 
                             static_cast<uint32_t>(desc_sets.size()), desc_sets.data(), 0, nullptr);
     vkCmdPushConstants(cmd, m_indirectPipe->layout, VK_SHADER_STAGE_ALL, 0, sizeof(DH::PushConstantPathtracer), &m_pushConst);
 
-    VkExtent2D groups = DH::getGroupCounts(size);
+    VkExtent2D groups = getGroupCounts(size);
     vkCmdDispatch(cmd, groups.width, groups.height, 1);
   }
 
   // Making sure the rendered image is ready to be used
-  VkImage outImage = m_gBuffers->getColorImage();
+  VkImage outImage = m_gBuffers->getColorImage(GBufferType::eRgbLinear);
   VkImageMemoryBarrier barrier = nvvk::makeImageMemoryBarrier(outImage, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                                                               VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
   vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
                        0, nullptr, 1, &barrier);
 
-  // Silhouette
-  if(m_silhouette->isValid())
+  if(m_denoiser->isActivated())
   {
+    // Initial buffers
+    VkDescriptorImageInfo colorBuffer       = m_gBuffers->getDescriptorImageInfo(GBufferType::eRgbLinear);
+    VkDescriptorImageInfo resultBuffer      = m_gBuffers->getDescriptorImageInfo(GBufferType::eRgbResult);
+    VkDescriptorImageInfo tmpBuffer         = m_gBuffers->getDescriptorImageInfo(GBufferType::eTempResult);
+    VkDescriptorImageInfo normalDepthBuffer = m_gBuffers->getDescriptorImageInfo(GBufferType::eNormalDepth);
+
+    m_denoiser->render(cmd, size, colorBuffer, resultBuffer, normalDepthBuffer, tmpBuffer);
+  }
+  else
+  {
+    // Blit the 32-bit color buffer to the 16-bit color buffer
+    VkOffset3D  minCorner = {0, 0, 0};
+    VkOffset3D  maxCorner = {int(m_gBuffers->getSize().width), int(m_gBuffers->getSize().height), 1};
+    VkImageBlit blitRegions{
+        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+        .srcOffsets     = {minCorner, maxCorner},
+        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+        .dstOffsets     = {minCorner, maxCorner},
+    };
+    vkCmdBlitImage(cmd, m_gBuffers->getColorImage(GBufferType::eRgbLinear), VK_IMAGE_LAYOUT_GENERAL,
+                   m_gBuffers->getColorImage(GBufferType::eRgbResult), VK_IMAGE_LAYOUT_GENERAL, 1, &blitRegions, VK_FILTER_LINEAR);
+  }
+
+  // Silhouette : adding a contour around the selected object on top of the eRgbResult
+  if(m_silhouette->isValid() && scene.getSelectedRenderNode() != -1)
+  {
+    m_silhouette->setDescriptor(SilhoutteImages::eObjectID, m_gBuffers->getDescriptorImageInfo(GBufferType::eSilhouette));
+    m_silhouette->setDescriptor(SilhoutteImages::eRGBAIImage, m_gBuffers->getDescriptorImageInfo(GBufferType::eRgbResult));
     m_silhouette->setColor(nvvkhl_shaders::toLinear(settings.silhouetteColor));
-    m_silhouette->render(cmd, m_gBuffers->getDescriptorImageInfo(eSilhouette), m_gBuffers->getDescriptorImageInfo(), size);
+    m_silhouette->dispatch2D(cmd, size);
   }
 }
 
@@ -332,6 +389,9 @@ bool RendererPathtracer::onUI()
     changed |= PE::Combo("Debug Method", &g_pathtraceSettings.dbgMethod,
                          "None\0Metallic\0Roughness\0Normal\0Tangent\0Bitangent\0BaseColor\0Emissive\0Opacity\0\0");
     changed |= PE::Combo("Render Mode", &g_pathtraceSettings.renderMode, "RTX\0Indirect\0\0");
+
+    m_denoiser->onUi();
+
     PE::end();
   }
 
@@ -343,9 +403,8 @@ bool RendererPathtracer::onUI()
 //
 void RendererPathtracer::handleChange(Resources& res, Scene& scene)
 {
-  static int lastSelection   = -1;
-  bool       writeDescriptor = scene.hasHdrChanged();
-  bool       gbufferChanged  = res.hasGBuffersChanged();
+  bool writeDescriptor = scene.hasHdrChanged();
+  bool gbufferChanged  = res.hasGBuffersChanged();
 
   if(g_pathtraceSettings.renderMode == 0 && !m_rtxPipe)
     createRtxPipeline(res, scene);
@@ -369,12 +428,6 @@ void RendererPathtracer::handleChange(Resources& res, Scene& scene)
     // Writing the descriptor set for the ray tracing
     // Which includes the top level acceleration structure and the output images
     writeRtxSet(scene);
-  }
-
-  if(lastSelection != scene.getSelectedRenderNode())
-  {
-    lastSelection = scene.getSelectedRenderNode();
-    scene.resetFrameCount();
   }
 }
 

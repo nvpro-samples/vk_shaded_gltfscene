@@ -24,6 +24,7 @@
 #include <windows.h>
 #endif
 
+#include "slang.h"
 
 // ImGui headers
 #include "imgui/imgui_axis.hpp"
@@ -31,11 +32,11 @@
 #include "imgui/imgui_helper.h"
 
 // NV Vulkan headers
+#include "nvvk/extensions_vk.hpp"
 #include "nvvk/raypicker_vk.hpp"
 #include "nvvkhl/element_benchmark_parameters.hpp"
 #include "nvvkhl/element_camera.hpp"
 #include "nvvkhl/element_dbgprintf.hpp"
-#include "nvvkhl/element_gui.hpp"
 #include "nvvkhl/element_logger.hpp"
 #include "nvvkhl/element_nvml.hpp"
 #include "nvvkhl/element_profiler.hpp"
@@ -44,11 +45,19 @@
 // Application specific headers
 #include "busy_window.hpp"
 #include "renderer.hpp"
-#include "resources.h"
 #include "scene.hpp"
 #include "settings.hpp"
 #include "settings_handler.hpp"
 #include "utilities.hpp"
+#include "vk_context.hpp"
+
+// #define USE_DGBPRINTF
+// With USE_DGBPRINTF defined, the application will have the capability to use the debug printf extension.
+// And it is possible to use the debug printf in the shaders, by including the following:
+// if(useDebug)
+//   debugPrintfEXT("Hello from shader\n");
+// This will print "Hello from shader" in the debug printf window ONLY for the pixels under the mouse cursor, when the mouse button is pressed.
+
 
 std::shared_ptr<nvvkhl::ElementCamera>              g_elemCamera;       // The camera element (UI and movement)
 std::shared_ptr<nvvkhl::ElementProfiler>            g_profiler;         // GPU profiler
@@ -83,10 +92,10 @@ public:
     gltfr::VulkanInfo ctx;
     ctx.device         = app->getDevice();
     ctx.physicalDevice = app->getPhysicalDevice();
-    ctx.GCT0           = {app->getQueue(0).queue, app->getQueue(0).familyIndex};
-    ctx.GCT1           = {app->getQueue(3).queue, app->getQueue(3).familyIndex};
-    ctx.compute        = {app->getQueue(1).queue, app->getQueue(1).familyIndex};
-    ctx.transfer       = {app->getQueue(2).queue, app->getQueue(2).familyIndex};
+    ctx.GCT0           = {app->getQueue(0).queue, app->getQueue(0).familyIndex};  // See creation of queues in main()
+    ctx.GCT1           = {app->getQueue(1).queue, app->getQueue(1).familyIndex};
+    ctx.compute        = {app->getQueue(2).queue, app->getQueue(2).familyIndex};
+    ctx.transfer       = {app->getQueue(3).queue, app->getQueue(3).familyIndex};
 
     m_resources.init(ctx);
     m_scene.init(m_resources);
@@ -249,6 +258,8 @@ public:
   // Adding menu items for loading, saving, and changing the view
   void onUIMenu() override
   {
+    bool v_sync = m_app->isVsync();
+
     auto getSaveImage = [&]() {
       std::string filename =
           NVPSystem::windowSaveFileDialog(m_app->getWindowHandle(), "Save Image", "PNG(.png),JPG(.jpg)|*.png;*.jpg");
@@ -264,13 +275,21 @@ public:
     bool saveFile       = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S);
     bool saveScreenFile = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiMod_Alt | ImGuiKey_S);
     bool saveImageFile  = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S);
+    bool closeApp       = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Q);
+    if(ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V))
+    {
+      v_sync = !v_sync;
+    }
+
     if(ImGui::BeginMenu("File"))
     {
       loadFile |= ImGui::MenuItem("Load", "Ctrl+O");
       saveFile |= ImGui::MenuItem("Save As", "Ctrl+S");
-      saveScreenFile |= ImGui::MenuItem("Save Screen", "Ctrl+Alt+Shift+S");
-      saveImageFile |= ImGui::MenuItem("Save Image", "CtrlShift+S");
       ImGui::Separator();
+      saveImageFile |= ImGui::MenuItem("Save Image", "Ctrl+Shift+S");
+      saveScreenFile |= ImGui::MenuItem("Save Screen", "Ctrl+Alt+Shift+S");
+      ImGui::Separator();
+      closeApp |= ImGui::MenuItem("Exit", "Ctrl+Q");
       ImGui::EndMenu();
     }
 
@@ -288,6 +307,8 @@ public:
       fitScene |= ImGui::MenuItem("Fit Scene", "Ctrl+Shift+F");
       fitObject |= ImGui::MenuItem("Fit Object", "Ctrl+F");
       reloadShaders |= ImGui::MenuItem("Reload Shaders", "Ctrl+R");
+      ImGui::Separator();
+      ImGui::MenuItem("V-Sync", "Ctrl+Shift+V", &v_sync);
       ImGui::EndMenu();
     }
 
@@ -325,6 +346,7 @@ public:
     {
       m_scene.fitSceneToView();
     }
+
     if(fitObject)
     {
       m_scene.fitObjectToView();
@@ -334,6 +356,31 @@ public:
     {
       createRenderers();
     }
+
+    if(m_app->isVsync() != v_sync)
+    {
+      m_app->setVsync(v_sync);
+    }
+
+    if(closeApp)
+    {
+      m_app->close();
+    }
+
+#ifndef NDEBUG
+    static bool s_showDemo{false};
+    static bool s_showDemoPlot{false};
+    if(ImGui::BeginMenu("Debug"))
+    {
+      ImGui::MenuItem("Show ImGui Demo", nullptr, &s_showDemo);
+      ImGui::MenuItem("Show ImPlot Demo", nullptr, &s_showDemoPlot);
+      ImGui::EndMenu();
+    }
+    if(s_showDemo)
+      ImGui::ShowDemoWindow(&s_showDemo);
+    if(s_showDemoPlot)
+      ImPlot::ShowDemoWindow(&s_showDemoPlot);
+#endif  // !NDEBUG
   }
 
   void saveRenderedImage(const std::string& filename)
@@ -485,6 +532,7 @@ private:
     nvh::ScopedTimer st(__FUNCTION__);
 
     vkDeviceWaitIdle(m_resources.ctx.device);
+    m_resources.resetSlangCompiler();  // Resetting the Slang session
     m_renderer.reset();
     if(!m_scene.isValid())
       return;
@@ -516,6 +564,11 @@ private:
   //
   void handleChanges()
   {
+    if(m_scene.hasHdrChanged())
+    {
+      m_settings.maxLuminance = m_scene.m_hdrEnv->getIntegral();
+    }
+
     // Scene changed (new scene)
     if(m_scene.hasSceneChanged())
     {
@@ -589,46 +642,54 @@ auto main(int argc, char** argv) -> int
   nvprintSetCallback([](int level, const char* fmt) { g_logger->addLog(level, "%s", fmt); });
   g_logger->setLogLevel(LOGBITS_INFO);
 
-  nvvk::ContextCreateInfo vkSetup;
+
+  // Vulkan Context creation information
+  VkContextSettings vkSetup;
   nvvkhl::addSurfaceExtensions(vkSetup.instanceExtensions);
-  vkSetup.setVersion(1, 3);
-  vkSetup.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-  vkSetup.addDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+  vkSetup.instanceExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   // All Vulkan extensions required by the sample
   VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
   VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
   VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV baryFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_NV};
   VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT};
-  vkSetup.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
-  vkSetup.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false, &accel_feature);
-  vkSetup.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false, &rt_pipeline_feature);
-  vkSetup.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-  vkSetup.addDeviceExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, false, &ray_query_features);
-  vkSetup.addDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
-  vkSetup.addDeviceExtension(VK_NV_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME, false, &baryFeatures);
-  vkSetup.addDeviceExtension(VK_EXT_SHADER_OBJECT_EXTENSION_NAME, false, &shaderObjFeature);
-  vkSetup.addDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, &accel_feature);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, &rt_pipeline_feature);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME, &ray_query_features);
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+  vkSetup.deviceExtensions.emplace_back(VK_NV_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME, &baryFeatures);
+  vkSetup.deviceExtensions.emplace_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME, &shaderObjFeature);
 
-  // Request for extra Queue for loading in parallel
-  vkSetup.addRequestedQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, 1, 1.0F);
+  // Request the creation of all needed queues
+  vkSetup.queues = {VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT,  // GTC for rendering
+                    VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT,  // GTC for loading in parallel
+                    VK_QUEUE_COMPUTE_BIT,                                                  // Compute
+                    VK_QUEUE_TRANSFER_BIT};                                                // Transfer
+
 #ifdef USE_DGBPRINTF
   vkSetup.instanceCreateInfoExt = g_dbgPrintf->getFeatures();  // Adding the debug printf extension
+  vkSetup.ignoreDbgMessages.insert(0x76589099);                // Truncate the message when too long
 #endif                                                         // USE_DGBPRINTF
 
-  nvvk::Context vkContext;
-  vkContext.init(vkSetup);
-  nvvk::Context::Queue qGCT1 =
-      vkContext.createQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, "GCT1", 1.0F);
+  // Creating the Vulkan context
+  auto vkctx = std::make_unique<VkContext>(vkSetup);
+
+  // Loading Vulkan extension pointers
+  load_VK_EXTENSIONS(vkctx->getInstance(), vkGetInstanceProcAddr, vkctx->getDevice(), vkGetDeviceProcAddr);
 
   // Setup the application information
   nvvkhl::ApplicationCreateInfo spec;
   spec.name           = PROJECT_NAME " Sample";
   spec.vSync          = false;
-  spec.instance       = vkContext.m_instance;
-  spec.device         = vkContext.m_device;
-  spec.physicalDevice = vkContext.m_physicalDevice;
-  spec.queues         = {vkContext.m_queueGCT, vkContext.m_queueC, vkContext.m_queueT, qGCT1};
+  spec.instance       = vkctx->getInstance();
+  spec.device         = vkctx->getDevice();
+  spec.physicalDevice = vkctx->getPhysicalDevice();
+  // Adding all queues
+  for(auto& q : vkctx->getQueueInfos())
+    spec.queues.emplace_back(q.queue, q.familyIndex, q.queueIndex);
 
   // Create the application
   auto app = std::make_unique<nvvkhl::Application>(spec);
@@ -637,7 +698,7 @@ auto main(int argc, char** argv) -> int
   g_elemCamera      = std::make_shared<nvvkhl::ElementCamera>();
   g_profiler        = std::make_shared<nvvkhl::ElementProfiler>(false);
   g_benchmarkParams = std::make_shared<nvvkhl::ElementBenchmarkParameters>(argc, argv);
-  auto gltfRenderer = std::make_shared<gltfr::GltfRendererElement>();
+  auto gltfRenderer = std::make_shared<gltfr::GltfRendererElement>();  // This is the main element of the application
 
   // Parsing arguments
   g_benchmarkParams->parameterLists().addFilename(".gltf|load a file", &g_inFilename);
@@ -652,8 +713,7 @@ auto main(int argc, char** argv) -> int
   app->addElement(g_dbgPrintf);                                                     // Debug printf
 #endif                                                                              // USE_DGBPRINTF
   app->addElement(std::make_unique<nvvkhl::ElementLogger>(g_logger.get(), false));  // Add logger window
-  app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));                    // Add logger window
-  app->addElement(std::make_shared<nvvkhl::ElementDefaultMenu>());                  // Menu / Quit
+  app->addElement(std::make_unique<nvvkhl::ElementNvml>(false));                    // Add GPU monitor
 
   g_profiler->setLabelUsage(false);  // Do not use labels for the profiler
 
@@ -663,7 +723,7 @@ auto main(int argc, char** argv) -> int
   // Cleanup
   gltfRenderer.reset();
   app.reset();
-  vkContext.deinit();
+  vkctx.reset();
 
   return 0;
 }
