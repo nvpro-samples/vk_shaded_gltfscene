@@ -1,16 +1,30 @@
-# Vulkan glTF Scene Raytrace/Raster
+# Vulkan glTF Scene Renderer
 
 
 |Pathtracer | Raster|
 |:------------: | :------------: |
 |![](doc/pathtrace.png) |![](doc/raster.png)|
 
-This sample loads [glTF](https://www.khronos.org/gltf/) (.gltf/.glb) scenes and will ray trace or rasterize it using glTF 2.0 material and textures. It can display an HDR image in the background and be lit by that HDR or use a built-in Sun&Sky. It renders in multiple passes, background, scene, and then tone maps the result. It shows how multiple resources (geometry, materials and textures) can be shared between the two rendering systems. 
+## Overview
 
-## Build
+This application demonstrates a dual-mode renderer for glTF 2.0 scenes, implementing both ray tracing and rasterization pipelines. It showcases the utilization of shared Vulkan resources across rendering modes, including geometry, materials, and textures.
 
--  This project uses [Vulkan](https://www.khronos.org/vulkan/) and requires the [latest SDK](https://vulkan.lunarg.com/sdk/home) to be installed. 				
--  This project also uses the Nvpro-Core framework. It is not included as a submodule, therefore you need to clone it separately. 
+## Key Features
+
+- glTF 2.0 (.gltf/.glb) scene loading
+- Pathtracing with global illumination
+- PBR-based rasterization
+- HDR environment mapping and Sun & Sky simulation
+- Advanced tone mapping
+- Camera control system
+- Extensive debug visualization options
+
+## Dependencies
+
+ - Vulkan SDK ([latest version](https://vulkan.lunarg.com/sdk/home))
+ - [Nvpro-Core](https://github.com/nvpro-samples/nvpro_core.git) framework
+
+## Build Instructions
 
 1. Clone the repositories
 ```bash
@@ -38,27 +52,80 @@ cmake --install .
 ```
 
 
+## glTF Core features
+
+- [x] glTF 2.0 (.gltf/.glb)
+- [x] images (HDR, PNG, JPEG, ...)
+- [x] buffers (geometry, animation, skinning, ...)
+- [x] textures (base color, normal, metallic, roughness, ...)
+- [x] materials (PBR, ...)
+- [x] animations
+- [ ] skins
+- [x] cameras
+- [x] lights
+- [x] nodes
+- [x] scenes
+- [x] samplers
+- [x] textures
+- [x] extensions
+
+What is currently not supported are animations and skins, multiple textures coordinates, morph targets, color at vertices, and some extensions.
+
+## GLTF Extensions
+ Here are the list of extensions that are supported by this application
+
+- [ ] KHR_animation_pointer
+- [ ] KHR_draco_mesh_compression
+- [ ] KHR_lights_punctual
+- [x] KHR_materials_anisotropy
+- [x] KHR_materials_clearcoat
+- [ ] KHR_materials_dispersion
+- [x] KHR_materials_emissive_strength
+- [x] KHR_materials_ior
+- [x] KHR_materials_iridescence
+- [x] KHR_materials_sheen
+- [x] KHR_materials_specular
+- [x] KHR_materials_transmission
+- [x] KHR_materials_unlit
+- [x] KHR_materials_variants
+- [x] KHR_materials_volume
+- [ ] KHR_mesh_quantization
+- [ ] KHR_texture_basisu
+- [x] KHR_texture_transform
+- [ ] KHR_xmp_json_ld
+- [x] EXT_mesh_gpu_instancing
+
 ## Pathtracer
 
 Implements a path tracer with global illumination. 
+
 
 ![](doc/pathtracer_settings.png)
 
 The options are:
 * Max Depth : number of bounces the path can do
 * Max Samples: how many samples per pixel at each frame iteration
+* Aperture: depth-of-field
 * Debug Method: shows information like base color, metallic, roughness, and some attributes
+* Choice between indirect and RTX pipeline.
+* Denoiser: A-trous denoiser 
 
 
 ## Raster
 
-The rasterizer uses the same Vulkan resources as the path tracer; scene geometry, scene data, textures. And for shading, it shares many of the same functions.
+Utilizes shared Vulkan resources with the path tracer, including:
 
-![](doc/raster_settings.png)
+- Scene geometry
+- Material data
+- Textures
+- Shading functions
 
 The options are:
 * Show wireframe: display wireframe on top of the geometry
+* Super-Sampling: render the image 2x and blit it with linear filter.
 * Debug Method: shows information like base color, metallic, roughness, and some attributes
+
+![](doc/raster_settings.png)
 
 Example with wireframe option turned on
 
@@ -181,48 +248,6 @@ Will be modifying what we see in the the window title. It will also create the m
 Will receive the path of the file been dropped on. If it is a .gltf, .glb or .hdr, it will load that file. 
 
 
-## glTF Core features
-
-* [x] glTF 2.0 (.gltf/.glb)
-* [x] images (HDR, PNG, JPEG, ...)
-* [x] buffers (geometry, animation, skinning, ...)
-* [x] textures (base color, normal, metallic, roughness, ...)
-* [x] materials (PBR, ...)
-* [x] animations
-* [ ] skins
-* [x] cameras
-* [x] lights
-* [x] nodes
-* [x] scenes
-* [x] samplers
-* [x] textures
-* [x] extensions
-
-What is currently not supported are animations and skins, multiple textures coordinates, morph targets, color at vertices, and some extensions.
-
-## GLTF Extensions
- Here are the list of extensions that are supported by this application
-
-* [ ] KHR_animation_pointer
-* [ ] KHR_draco_mesh_compression
-* [ ] KHR_lights_punctual
-* [x] KHR_materials_anisotropy
-* [x] KHR_materials_clearcoat
-* [ ] KHR_materials_dispersion
-* [x] KHR_materials_emissive_strength
-* [x] KHR_materials_ior
-* [x] KHR_materials_iridescence
-* [x] KHR_materials_sheen
-* [x] KHR_materials_specular
-* [x] KHR_materials_transmission
-* [x] KHR_materials_unlit
-* [x] KHR_materials_variants
-* [x] KHR_materials_volume
-* [ ] KHR_mesh_quantization
-* [ ] KHR_texture_basisu
-* [x] KHR_texture_transform
-* [ ] KHR_xmp_json_ld
-* [x] EXT_mesh_gpu_instancing
 
 ----
 

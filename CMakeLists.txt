@@ -6,25 +6,6 @@ Project(${PROJNAME})
 Message(STATUS "-------------------------------")
 Message(STATUS "Processing Project ${PROJNAME}:")
 
-# Include CPM.cmake
-include(cmake/CPM.cmake)
-
-# Adding Slang
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-set(Slang_VERSION  "2024.1.30")
-find_package(Slang)
-
-# Add RapidJSON package
-CPMAddPackage(
-    NAME RapidJSON
-    GITHUB_REPOSITORY Tencent/rapidjson
-    VERSION 1.1.0
-    GIT_TAG v1.1.0
-    DOWNLOAD_ONLY YES
-)
-
-set(RAPIDJSON_INCLUDE_DIR ${RapidJSON_SOURCE_DIR}/include/rapidjson)
-
 #####################################################################################
 # look for nvpro_core 1) as a sub-folder 2) at some other locations
 # this cannot be put anywhere else since we still didn't find setup.cmake yet
@@ -49,8 +30,23 @@ _add_project_definitions(${PROJNAME})
 
 set(NVPRO_CORE_DIR ${BASE_DIRECTORY}/nvpro_core)
 
+# Adding Slang
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set(Slang_VERSION "2024.1.30")
+find_package(Slang)
+
 # Adding SLANG compiler function
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/slang.cmake)
+
+# Add RapidJSON package
+download_package(
+  NAME RapidJSON
+  URL https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.zip
+  VERSION 1.1.0
+  LOCATION RapidJSON_SOURCE_DIR
+)
+
+set(RAPIDJSON_INCLUDE_DIR ${RapidJSON_SOURCE_DIR}/rapidjson-1.1.0/include/rapidjson)
 
 #####################################################################################
 # additions from packages needed for this sample
