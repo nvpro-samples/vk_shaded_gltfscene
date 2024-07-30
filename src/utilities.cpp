@@ -29,12 +29,12 @@
 
 // Convert a tiled image to RGBA8 linear
 void gltfr::imageToRgba8Linear(VkCommandBuffer  cmd,
-                        VkDevice         device,
-                        VkPhysicalDevice physicalDevice,
-                        VkImage          srcImage,
-                        VkExtent2D       size,
-                        VkImage&         dstImage,
-                        VkDeviceMemory&  dstImageMemory)
+                               VkDevice         device,
+                               VkPhysicalDevice physicalDevice,
+                               VkImage          srcImage,
+                               VkExtent2D       size,
+                               VkImage&         dstImage,
+                               VkDeviceMemory&  dstImageMemory)
 {
   // Find the memory type index for the memory
   auto getMemoryType = [&](uint32_t typeBits, const VkMemoryPropertyFlags& properties) {
@@ -139,5 +139,4 @@ void gltfr::saveImageToFile(VkDevice device, VkImage dstImage, VkDeviceMemory ds
   }
 
   LOGI("Screenshot saved to %s\n", filename.c_str());
-
 }

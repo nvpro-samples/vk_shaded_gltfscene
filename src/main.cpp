@@ -687,9 +687,7 @@ auto main(int argc, char** argv) -> int
   spec.instance       = vkctx->getInstance();
   spec.device         = vkctx->getDevice();
   spec.physicalDevice = vkctx->getPhysicalDevice();
-  // Adding all queues
-  for(auto& q : vkctx->getQueueInfos())
-    spec.queues.emplace_back(q.queue, q.familyIndex, q.queueIndex);
+  spec.queues         = vkctx->getQueueInfos();
 
   // Create the application
   auto app = std::make_unique<nvvkhl::Application>(spec);

@@ -66,7 +66,7 @@ void main()
   float magnitude = sqrt(sumX * sumX + sumY * sumY);
 
   // If the magnitude is above a certain threshold, we consider it an edge
-  float threshold = 2.56;  
+  float threshold = 2.56;
 
   // Write the result to the output image
   if(magnitude > threshold)

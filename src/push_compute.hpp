@@ -128,7 +128,7 @@ public:
   }
 
   // Dispatch the compute shader generic
-  void dispatch(VkCommandBuffer cmd, VkExtent3D groupSize)
+  void dispatch(VkCommandBuffer cmd, VkExtent3D groupSize, const std::vector<uint32_t>& shaders = {0})
   {
     // Push descriptor set
     vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_dset->getPipeLayout(), 0,
@@ -137,14 +137,17 @@ public:
     // Pushing constants
     vkCmdPushConstants(cmd, m_dset->getPipeLayout(), VK_SHADER_STAGE_ALL, 0, sizeof(TPushConstants), &m_pushConstant);
 
-    // Bind compute shader
-    // @TODO: support multiple shaders
-    const VkShaderStageFlagBits stages[1] = {VK_SHADER_STAGE_COMPUTE_BIT};
-    vkCmdBindShadersEXT(cmd, 1, stages, m_shaders.data());
 
-    // Dispatch compute shader
-    vkCmdDispatch(cmd, groupSize.width, groupSize.height, groupSize.depth);
-    memoryBarrier(cmd);  // Post: producer -> consumer (safe)
+    // Only compute shader
+    const VkShaderStageFlagBits stages[1] = {VK_SHADER_STAGE_COMPUTE_BIT};
+
+    // Bind and dispatch all shaders
+    for(uint32_t shader : shaders)
+    {
+      vkCmdBindShadersEXT(cmd, 1, stages, &m_shaders[shader]);
+      vkCmdDispatch(cmd, groupSize.width, groupSize.height, groupSize.depth);
+      memoryBarrier(cmd);  // Post: producer -> consumer (safe)
+    }
   }
 
   // The shaders must have been compiled successfully
