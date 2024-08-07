@@ -124,6 +124,8 @@ SampleResult pathTrace(Ray r, inout uint seed)
 
   GltfMaterialBuf materials = GltfMaterialBuf(sceneDesc.materialAddress);
 
+  float lastSamplePdf = DIRAC;
+
   for(int depth = 0; depth < pc.maxDepth; depth++)
   {
     traceRay(r, seed);
@@ -143,8 +145,12 @@ SampleResult pathTrace(Ray r, inout uint seed)
         // Adding HDR lookup
         vec3 dir = rotate(r.direction, vec3(0, 1, 0), -frameInfo.envRotation);
         vec2 uv  = getSphericalUv(dir);  // See sampling.glsl
-        vec3 env = texture(hdrTexture, uv).rgb;
-        radiance += env * frameInfo.envIntensity.xyz;
+        vec4 env = texture(hdrTexture, uv);
+
+        // We may hit the environment twice: once via sampleLights() and once when hitting the sky while probing
+        // for more indirect hits. This is the counter part of the MIS weighting in sampleLights()
+        float misWeight = (lastSamplePdf == DIRAC) ? 1.0 : (lastSamplePdf / (lastSamplePdf + env.w));
+        radiance += misWeight * env.rgb * frameInfo.envIntensity.xyz;
       }
 
       radiance *= throughput;
@@ -198,7 +204,7 @@ SampleResult pathTrace(Ray r, inout uint seed)
     // do not next event estimation (but delay the adding of contribution)
     const bool nextEventValid = ((dot(dirToLight, hit.geonrm) > 0.0f) != isInside) && lightPdf != 0.0f;
 
-    // Evaluate BSDF
+    // Evaluate BSDF for Light
     if(nextEventValid)
     {
       BsdfEvaluateData evalData;
@@ -231,11 +237,14 @@ SampleResult pathTrace(Ray r, inout uint seed)
       bsdfSample(sampleData, pbrMat);
 
       throughput *= sampleData.bsdf_over_pdf;
-      r.direction = sampleData.k2;
+      r.direction   = sampleData.k2;
+      lastSamplePdf = sampleData.pdf;
 
       if(sampleData.event_type == BSDF_EVENT_ABSORB)
       {
-        break;  // Need to add the contribution ?
+        // Exit tracing rays, but still finish this iteration; in particular the visibility test
+        // for the light that we may have hit.
+        depth = pc.maxDepth;
       }
       else
       {
@@ -256,8 +265,9 @@ SampleResult pathTrace(Ray r, inout uint seed)
     // We are adding the contribution to the radiance only if the ray is not occluded by an object.
     if(nextEventValid)
     {
-      Ray  shadowRay = Ray(r.origin, dirToLight);
-      bool inShadow  = traceShadow(shadowRay, INFINITE, seed);
+      vec3 shadowRayOrigin = offsetRay(hit.pos, hit.geonrm);
+      Ray  shadowRay       = Ray(shadowRayOrigin, dirToLight);
+      bool inShadow        = traceShadow(shadowRay, INFINITE, seed);
       // We are adding the contribution to the radiance only if the ray is not occluded by an object.
       if(!inShadow)
       {

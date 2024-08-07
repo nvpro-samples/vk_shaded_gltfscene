@@ -19,7 +19,6 @@
 
 #include <csignal>
 
-
 #include <vulkan/vulkan_core.h>
 #include <stdexcept>
 #include <vector>
@@ -44,7 +43,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL VkContextDebugReport(VkDebugUtilsMessageSe
     auto ignoredMsg = reinterpret_cast<std::unordered_set<uint32_t>*>(userData);
     if(ignoredMsg->find(callbackData->messageIdNumber) != ignoredMsg->end())
       return VK_FALSE;
-    fprintf(stderr, "%s\n", callbackData->pMessage);
+    LOGE("%s\n", callbackData->pMessage);
 #if defined(_MSVC_LANG)
     __debugbreak();  // If you break here, there is a Vulkan error that needs to be fixed
                      // To ignore specific message, insert it to settings.ignoreDbgMessages
@@ -70,6 +69,7 @@ struct ExtensionFeaturePair
 {
   const char* extensionName = nullptr;
   void*       feature       = nullptr;  // [optional] Pointer to the feature structure for the extension
+  bool        required      = true;     // If the extension is required
 };
 
 
@@ -203,7 +203,6 @@ private:
     if(m_settings.enableValidationLayers)
     {
       layers.push_back("VK_LAYER_KHRONOS_validation");
-      m_settings.instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     VkInstanceCreateInfo createInfo{
@@ -304,7 +303,14 @@ private:
     }
 
     // Filter the available extensions otherwise the device creation will fail
-    m_settings.deviceExtensions = filterAvailableExtensions(getDeviceExtensions(m_physicalDevice), m_settings.deviceExtensions);
+    std::vector<ExtensionFeaturePair> filteredExtensions;
+    bool allFound = filterAvailableExtensions(getDeviceExtensions(m_physicalDevice), m_settings.deviceExtensions, filteredExtensions);
+    if(!allFound)
+    {
+      m_physicalDevice = {};
+      return;
+    }
+    m_settings.deviceExtensions = filteredExtensions;
   }
 
   void createDevice()
@@ -456,14 +462,16 @@ private:
     return true;
   }
 
-  std::vector<ExtensionFeaturePair> filterAvailableExtensions(const std::vector<VkExtensionProperties>& availableExtensions,
-                                                              const std::vector<ExtensionFeaturePair>& desiredExtensions)
+  bool filterAvailableExtensions(const std::vector<VkExtensionProperties>& availableExtensions,
+                                 const std::vector<ExtensionFeaturePair>&  desiredExtensions,
+                                 std::vector<ExtensionFeaturePair>&        filteredExtensions)
   {
+    bool allFound = true;
+
     std::unordered_map<std::string, bool> availableExtensionsMap;
     for(const auto& ext : availableExtensions)
       availableExtensionsMap[ext.extensionName] = true;
 
-    std::vector<ExtensionFeaturePair> filteredExtensions;
     for(const auto& desiredExtension : desiredExtensions)
     {
       if(availableExtensionsMap.find(desiredExtension.extensionName) != availableExtensionsMap.end())
@@ -472,11 +480,17 @@ private:
       }
       else
       {
-        LOGE("Extension not available: %s\n", desiredExtension.extensionName);
+        if(desiredExtension.required)
+        {
+          LOGE("Extension not available: %s\n", desiredExtension.extensionName);
+          allFound = false;
+        }
+        else
+          LOGW("Extension not available: %s\n", desiredExtension.extensionName);
       }
     }
 
-    return filteredExtensions;
+    return allFound;
   }
 };
 

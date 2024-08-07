@@ -224,7 +224,7 @@ public:
       ImGui::Begin("Viewport");
 
       // Pick under mouse cursor
-      if(ImGui::IsWindowHovered(ImGuiFocusedFlags_RootWindow) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+      if((ImGui::IsWindowHovered(ImGuiFocusedFlags_RootWindow) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
          || ImGui::IsKeyPressed(ImGuiKey_Space))
       {
         screenPicking();
@@ -459,7 +459,7 @@ private:
   void screenPicking()
   {
     // Pick under mouse cursor
-    if(!m_scene.isValid() || !m_scene.m_gltfSceneRtx && m_scene.m_gltfSceneRtx->tlas() == VK_NULL_HANDLE)
+    if(!m_scene.isValid() || !m_scene.m_gltfSceneRtx || m_scene.m_gltfSceneRtx->tlas() == VK_NULL_HANDLE)
       return;
 
     // This need to called withing ImGui::Begin("Viewport");
@@ -601,7 +601,6 @@ private:
   }
 
 
-  bool                                           m_busy = false;
   nvvkhl::Application*                           m_app  = nullptr;
   Resources                                      m_resources;
   Settings                                       m_settings;
@@ -611,6 +610,7 @@ private:
   std::unique_ptr<nvvkhl::TonemapperPostProcess> m_tonemapper{};
   std::unique_ptr<nvvk::RayPickerKHR>            m_picker{};
   std::unique_ptr<SettingsHandler>               m_settingsHandler;
+  bool                                           m_busy = false;
 };
 
 
@@ -660,7 +660,7 @@ auto main(int argc, char** argv) -> int
   vkSetup.deviceExtensions.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
   vkSetup.deviceExtensions.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME, &ray_query_features);
   vkSetup.deviceExtensions.emplace_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
-  vkSetup.deviceExtensions.emplace_back(VK_NV_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME, &baryFeatures);
+  vkSetup.deviceExtensions.emplace_back(VK_NV_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME, &baryFeatures, false);
   vkSetup.deviceExtensions.emplace_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME, &shaderObjFeature);
 
   // Request the creation of all needed queues
@@ -675,19 +675,24 @@ auto main(int argc, char** argv) -> int
 #endif                                                         // USE_DGBPRINTF
 
   // Creating the Vulkan context
-  auto vkctx = std::make_unique<VkContext>(vkSetup);
+  auto vkContext = std::make_unique<VkContext>(vkSetup);
+  if(!vkContext->isValid())
+  {
+    LOGE("Error in Vulkan context creation\n");
+    std::exit(0);
+  }
 
   // Loading Vulkan extension pointers
-  load_VK_EXTENSIONS(vkctx->getInstance(), vkGetInstanceProcAddr, vkctx->getDevice(), vkGetDeviceProcAddr);
+  load_VK_EXTENSIONS(vkContext->getInstance(), vkGetInstanceProcAddr, vkContext->getDevice(), vkGetDeviceProcAddr);
 
   // Setup the application information
   nvvkhl::ApplicationCreateInfo spec;
   spec.name           = PROJECT_NAME " Sample";
   spec.vSync          = false;
-  spec.instance       = vkctx->getInstance();
-  spec.device         = vkctx->getDevice();
-  spec.physicalDevice = vkctx->getPhysicalDevice();
-  spec.queues         = vkctx->getQueueInfos();
+  spec.instance       = vkContext->getInstance();
+  spec.device         = vkContext->getDevice();
+  spec.physicalDevice = vkContext->getPhysicalDevice();
+  spec.queues         = vkContext->getQueueInfos();
 
   // Create the application
   auto app = std::make_unique<nvvkhl::Application>(spec);
@@ -721,7 +726,7 @@ auto main(int argc, char** argv) -> int
   // Cleanup
   gltfRenderer.reset();
   app.reset();
-  vkctx.reset();
+  vkContext.reset();
 
   return 0;
 }
